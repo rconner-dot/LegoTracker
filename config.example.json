@@ -1,0 +1,11 @@
+{
+  "canvasUrl": "https://yourschool.instructure.com",
+  "token": "PASTE-YOUR-CANVAS-ACCESS-TOKEN-HERE",
+  "courseId": "12345",
+  "title": "Period 3 Coding Quest",
+  "refreshSeconds": 60,
+  "nameFormat": "first-last-initial",
+  "moduleIds": null,
+  "themes": {},
+  "characters": {}
+}

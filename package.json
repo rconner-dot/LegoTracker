@@ -1,0 +1,15 @@
+{
+  "name": "class-quest",
+  "version": "1.0.0",
+  "description": "An 8-bit race view of student progress through Canvas LMS modules. Runs locally; talks only to your Canvas instance.",
+  "main": "server.js",
+  "bin": { "class-quest": "server.js" },
+  "scripts": {
+    "start": "node server.js",
+    "demo": "node server.js --demo",
+    "lan": "node server.js --lan",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": { "node": ">=18.17" },
+  "license": "MIT"
+}
