@@ -40,50 +40,66 @@ and jumps over the next obstacle.
 - **Insights (private):** who's behind pace, last time each student turned something in,
   missing and late counts, and a CSV export.
 
-It runs on your own computer, needs no `npm install`, and only talks to your Canvas
-instance. Your Canvas token stays on the server. Displays never receive Canvas IDs, real
-names, or grades.
+It runs on your own computer and only talks to your Canvas instance. Your Canvas token
+stays on that computer. Displays never receive Canvas IDs, real names, or grades.
 
-## Quick start (demo)
+## Getting started (nothing to install)
 
-Requires [Node.js](https://nodejs.org) 18.17 or newer.
+You don't need npm, an installer, or admin rights.
 
-```sh
-npm run demo
-```
+1. **Download the zip for your computer** from this repository's
+   [Releases](../../releases) page:
+   - **Windows:** `ClassQuest-win-x64.zip`
+   - **Mac with an Apple chip** (M1 or newer): `ClassQuest-mac-arm64.zip`
+   - **Older Intel Mac:** `ClassQuest-mac-x64.zip`
+   - **Linux:** `ClassQuest-linux-x64.zip`
 
-Open http://localhost:3000 for the display and http://localhost:3000/admin for teacher
-controls. The demo class has three sections and makes progress every few seconds.
+   Each one includes the official Node.js program, so there's nothing else to get.
+2. **Unzip it** somewhere you can write to, like Documents or the Desktop.
+3. **Start it:**
+   - **Windows:** double-click **Start Class Quest**. If Windows says it protected your
+     PC, click **More info → Run anyway**.
+   - **Mac:** the first time, right-click **Start Class Quest.command → Open → Open**.
+     After that, you can just double-click it.
+4. **Connect Canvas.** Your browser opens Teacher controls on the **Canvas** tab. Paste
+   your Canvas address and a token, pick your course, and you're done. The tab explains
+   how to get a token: in Canvas, go to **Account → Settings → + New Access Token**. Use
+   an account that's a teacher or TA in the course.
 
-## Connecting to Canvas
+Keep the Class Quest window open while you use it, and close it to stop. Until you
+connect Canvas, the display shows a pretend class so you can try things out. To remove
+Class Quest, delete the folder. Your settings and saved connection live in its `data`
+folder.
 
-1. **Get an access token.** In Canvas go to **Account → Settings → Approved
-   Integrations → + New Access Token**. Use an account that is a **teacher or TA** in the
-   course, because reading each student's module progress needs that permission.
-2. **Find the course ID.** It's the number in the course URL:
-   `https://yourschool.instructure.com/courses/`**`12345`**.
-3. **Configure.** Copy `config.example.json` to `config.json` and fill it in. You can
-   also use environment variables, which take priority over the file:
-
-   ```sh
-   export CANVAS_URL=https://yourschool.instructure.com
-   export CANVAS_TOKEN=...        # keep this secret
-   export CANVAS_COURSE_ID=12345
-   npm start
-   ```
-
-4. Open http://localhost:3000/admin to set up your screens.
+**If your computer won't run it:** some school computers block programs from
+downloaded folders. In that case, ask IT to allow the folder, or run Class Quest on
+another computer on the school network with **Show on other devices** (below) and open
+the display from your computer's browser. Chromebooks can't run it directly, but they
+can open the display from another computer.
 
 ### Showing it on another device
 
-Run `npm run lan` and open the network address it prints on the classroom TV or
-projector. Teacher controls then need a PIN:
+On Windows, use **Show on other devices** instead of **Start Class Quest**. On Mac or
+Linux, run the launcher with `--lan`. Then open the network address it prints on the
+classroom TV or projector. Teacher controls then need a PIN:
 
 - If you don't set one, a random PIN is printed when Class Quest starts.
 - To choose your own, set `ADMIN_PIN` (or `"adminPin"` in `config.json`).
 
 On the computer running Class Quest itself, teacher controls open without a PIN unless
-you set one.
+you set one. Windows may ask whether to allow Node.js on the network. If you can't
+approve that, the display will only work on the computer running Class Quest.
+
+### Running from source (if you already have Node.js)
+
+```sh
+node server.js --open      # or: npm start
+node server.js --demo      # always show the demo class
+```
+
+Instead of the Canvas tab, you can also set `CANVAS_URL`, `CANVAS_TOKEN` and
+`CANVAS_COURSE_ID` as environment variables, or in a `config.json` copied from
+`config.example.json`. Environment variables take priority and lock the Canvas tab.
 
 ### How progress is measured
 
@@ -122,20 +138,21 @@ Each screen's link is shown in teacher controls. You can add these to any displa
 
 ## Options
 
-Almost everything is set in teacher controls and saved to `data/settings.json`.
-`config.json` only provides the connection and starting values:
+Almost everything is set in teacher controls. Settings are saved to
+`data/settings.json`, and the Canvas connection to `data/connection.json`. The optional
+`config.json` only provides starting values:
 
 | Key | Default | What it does |
 | --- | --- | --- |
-| `canvasUrl`, `token`, `courseId` | — | Canvas connection (or `CANVAS_URL`, `CANVAS_TOKEN`, `CANVAS_COURSE_ID`) |
+| `canvasUrl`, `token`, `courseId` | — | Canvas connection (normally set from the Canvas tab instead) |
 | `adminPin` | none | PIN for teacher controls (or `ADMIN_PIN`) |
 | `refreshSeconds` | `60` | How often to re-read Canvas |
 | `port`, `host` | `3000`, `127.0.0.1` | Where the server listens (`--lan` listens on your network) |
 | `dataDir` | `data` | Where teacher settings are saved |
 | `title`, `nameFormat`, `characters`, `themes`, `moduleIds` | — | Starting values for teacher controls |
 
-`config.json` and `data/` are git-ignored, so your token and class settings won't be
-committed by accident.
+`config.json`, `data/` and `dist/` are git-ignored, so your token and class settings won't
+be committed by accident.
 
 ## Privacy notes
 
@@ -153,8 +170,12 @@ This is meant to be shown to the class, so it shares as little as possible:
 ## Development
 
 ```sh
-npm test
+node --test test/*.test.js      # or: npm test
+node scripts/package.js         # build the ready-to-run zips into dist/
 ```
+
+The **Build downloads** GitHub Action does the packaging automatically. Run it from the
+Actions tab, or push a tag like `v1.0.0` to publish a release with the zips attached.
 
 ```
 server.js          HTTP server: /api/state, /api/admin/*, static files
@@ -162,10 +183,13 @@ lib/canvas.js      Canvas REST client (pagination, retries, token origin check)
 lib/progress.js    modules → levels, positions, pace, badges, ranks, events
 lib/settings.js    teacher settings, validation, and screen membership
 lib/tracker.js     refresh loop, event log, per-screen state
+lib/runtime.js     connect / switch / disconnect Canvas without restarting
 lib/admin.js       PIN sessions and CSV export
 lib/sources.js     live Canvas source and the demo class
 public/sprites.js  pixel-art characters and badge icons (shared with the server)
 public/worlds.js   level themes, scenery, and obstacles
 public/app.js      the class display
 public/admin.js    teacher controls
+launchers/         double-click start files for each OS
+scripts/package.js builds the zips (verifies Node.js downloads by checksum)
 ```

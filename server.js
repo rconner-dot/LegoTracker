@@ -9,10 +9,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
+const { spawn } = require('child_process');
 const { loadConfig } = require('./lib/config');
-const { CanvasSource, DemoSource } = require('./lib/sources');
-const { Tracker } = require('./lib/tracker');
-const { SettingsStore } = require('./lib/settings');
+const { Runtime } = require('./lib/runtime');
 const { AdminAuth, sameOrigin, progressCsv } = require('./lib/admin');
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -68,8 +67,24 @@ function serveStatic(res, rel) {
   });
 }
 
-function createServer({ tracker, auth }) {
+// `runtime` is used by the real app (it can switch courses); tests may pass a
+// bare `tracker` instead.
+function createServer({ runtime, tracker: fixedTracker, auth }) {
+  const current = () => (runtime ? runtime.tracker : fixedTracker);
+
+  async function handleCanvas(req, res, url) {
+    if (!runtime) return sendJson(res, 501, { error: 'Not available' });
+    if (url.pathname === '/api/admin/canvas' && req.method === 'GET') return sendJson(res, 200, runtime.status());
+    if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
+    const body = await readJson(req);
+    if (url.pathname === '/api/admin/canvas/courses') return sendJson(res, 200, await runtime.listCourses(body));
+    if (url.pathname === '/api/admin/canvas/connect') return sendJson(res, 200, await runtime.connect(body));
+    if (url.pathname === '/api/admin/canvas/disconnect') return sendJson(res, 200, await runtime.disconnect());
+    return sendJson(res, 404, { error: 'Not found' });
+  }
+
   async function handleAdmin(req, res, url) {
+    const tracker = current();
     if (url.pathname === '/api/admin/login' && req.method === 'POST') {
       const body = await readJson(req);
       const cookie = auth.login(String(body.pin || ''), req.socket.encrypted);
@@ -85,6 +100,8 @@ function createServer({ tracker, auth }) {
       return sendJson(res, 403, { error: 'Teacher controls are only available on the computer running Class Quest. Set ADMIN_PIN to use them from another device.', auth: 'blocked' });
     }
     if (status !== 'ok') return sendJson(res, 401, { error: 'PIN required', auth: 'login' });
+
+    if (url.pathname === '/api/admin/canvas' || url.pathname.startsWith('/api/admin/canvas/')) return handleCanvas(req, res, url);
 
     if (url.pathname === '/api/admin/data' && req.method === 'GET') return sendJson(res, 200, tracker.getAdminData());
     if (url.pathname === '/api/admin/settings' && req.method === 'PUT') {
@@ -115,7 +132,7 @@ function createServer({ tracker, auth }) {
       if (url.pathname.startsWith('/api/admin/')) return await handleAdmin(req, res, url);
       if (mutating) return send(res, 405, 'Method not allowed', 'text/plain');
 
-      if (url.pathname === '/api/state') return sendJson(res, 200, tracker.getState(url.searchParams.get('view')));
+      if (url.pathname === '/api/state') return sendJson(res, 200, current().getState(url.searchParams.get('view')));
       if (url.pathname === '/healthz') return send(res, 200, 'ok', 'text/plain');
       if (url.pathname === '/admin' || url.pathname === '/admin/') return serveStatic(res, 'admin.html');
       const rel = url.pathname === '/' ? 'index.html' : decodeURIComponent(url.pathname).replace(/^\/+/, '');
@@ -131,11 +148,21 @@ function lanAddresses() {
   return Object.values(os.networkInterfaces()).flat().filter((i) => i && i.family === 'IPv4' && !i.internal).map((i) => i.address);
 }
 
+function openBrowser(url) {
+  const [cmd, args] = process.platform === 'win32' ? ['cmd', ['/c', 'start', '""', url]]
+    : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
+  try {
+    const child = spawn(cmd, args, { stdio: 'ignore', detached: true, windowsHide: true });
+    child.on('error', () => {});
+    child.unref();
+  } catch {
+    // No browser available; the address is printed anyway.
+  }
+}
+
 async function main() {
   const config = loadConfig();
-  const settings = new SettingsStore({ dir: config.dataDir, file: config.demo ? 'settings.demo.json' : 'settings.json', config });
-  const source = config.demo ? new DemoSource() : new CanvasSource(config);
-  const tracker = new Tracker({ source, settings, mode: config.demo ? 'demo' : 'live' });
+  const runtime = new Runtime(config);
 
   let pin = config.adminPin;
   if (!pin && config.host !== '127.0.0.1' && config.host !== 'localhost') {
@@ -144,18 +171,34 @@ async function main() {
   }
   const auth = new AdminAuth({ pin });
 
-  if (config.demo) {
-    console.log(`Running in DEMO mode${config.demoReason ? ` (${config.demoReason})` : ''}. See README.md to connect Canvas.`);
-  } else {
-    console.log(`Reading course ${config.courseId} from ${config.canvasUrl} every ${config.refreshSeconds}s`);
-  }
-  tracker.start(config.demo ? 3000 : config.refreshSeconds * 1000);
-
-  const server = createServer({ tracker, auth });
+  const base = `http://localhost:${config.port}`;
+  const server = createServer({ runtime, auth });
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.log(`Class Quest already seems to be running at ${base}`);
+      if (config.open) openBrowser(base);
+      setTimeout(() => process.exit(0), 500);
+      return;
+    }
+    console.error(err.message);
+    process.exit(1);
+  });
   server.listen(config.port, config.host, () => {
-    console.log(`Class Quest is running at http://localhost:${config.port}`);
-    console.log(`Teacher controls:         http://localhost:${config.port}/admin`);
-    if (config.host === '0.0.0.0') for (const ip of lanAddresses()) console.log(`  on your network: http://${ip}:${config.port}`);
+    console.log('');
+    console.log('  Class Quest is running!');
+    console.log(`  Class display:     ${base}`);
+    console.log(`  Teacher controls:  ${base}/admin`);
+    if (config.host === '0.0.0.0') for (const ip of lanAddresses()) console.log(`  On your network:   http://${ip}:${config.port}`);
+    console.log('');
+    if (config.demo) {
+      console.log(`  Showing a demo class (${config.demoReason || 'demo mode'}). Connect Canvas in Teacher controls.`);
+    } else {
+      console.log(`  Reading course ${config.courseId} from ${config.canvasUrl} every ${config.refreshSeconds}s.`);
+    }
+    console.log('  Keep this window open while you use Class Quest. Close it (or press Ctrl+C) to stop.');
+    console.log('');
+    runtime.start();
+    if (config.open) openBrowser(config.demo && !process.argv.includes('--demo') ? `${base}/admin` : base);
   });
 }
 

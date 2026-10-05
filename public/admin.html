@@ -46,13 +46,15 @@
 
   <main id="app" class="admin" hidden>
     <nav class="tabs" role="tablist" aria-label="Sections">
+      <button class="tab" role="tab" id="tab-canvas" aria-controls="panel-canvas">Canvas</button>
       <button class="tab" role="tab" id="tab-screens" aria-controls="panel-screens">Screens</button>
       <button class="tab" role="tab" id="tab-students" aria-controls="panel-students">Students</button>
       <button class="tab" role="tab" id="tab-levels" aria-controls="panel-levels">Levels</button>
       <button class="tab" role="tab" id="tab-display" aria-controls="panel-display">Display</button>
       <button class="tab" role="tab" id="tab-insights" aria-controls="panel-insights">Insights</button>
     </nav>
-    <section id="panel-screens" role="tabpanel" aria-labelledby="tab-screens"></section>
+    <section id="panel-canvas" role="tabpanel" aria-labelledby="tab-canvas" hidden></section>
+    <section id="panel-screens" role="tabpanel" aria-labelledby="tab-screens" hidden></section>
     <section id="panel-students" role="tabpanel" aria-labelledby="tab-students" hidden></section>
     <section id="panel-levels" role="tabpanel" aria-labelledby="tab-levels" hidden></section>
     <section id="panel-display" role="tabpanel" aria-labelledby="tab-display" hidden></section>

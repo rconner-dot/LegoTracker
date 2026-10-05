@@ -9,7 +9,10 @@
 
   let data = null;
   let settings = null;
-  let tab = 'screens';
+  const TABS = ['canvas', 'screens', 'students', 'levels', 'display', 'insights'];
+  let tab = null;
+  let canvas = null;
+  const conn = { url: '', token: '', courses: null, courseId: '', busy: false, msg: '', switching: false };
   let screenId = null;
   let screenSearch = '';
   let studentSearch = '';
@@ -76,6 +79,9 @@
   async function load() {
     try {
       data = await api('/api/admin/data');
+      canvas = await api('/api/admin/canvas').catch(() => null);
+      if (!tab) tab = canvas && !canvas.connected ? 'canvas' : 'screens';
+      if (canvas && !conn.url && canvas.canvasUrl) conn.url = canvas.canvasUrl;
       if (!dirty) settings = structuredClone(data.settings);
       show('app');
       $('logout').hidden = false;
@@ -146,13 +152,13 @@
     const active = document.activeElement;
     const key = active && active.dataset ? active.dataset.key : null;
     const sel = active && 'selectionStart' in active ? [active.selectionStart, active.selectionEnd] : null;
-    for (const t of ['screens', 'students', 'levels', 'display', 'insights']) {
+    for (const t of TABS) {
       $(`tab-${t}`).setAttribute('aria-selected', String(t === tab));
       $(`tab-${t}`).tabIndex = t === tab ? 0 : -1;
       $(`panel-${t}`).hidden = t !== tab;
     }
     const panel = $(`panel-${tab}`);
-    panel.replaceChildren(...{ screens: renderScreens, students: renderStudents, levels: renderLevels, display: renderDisplay, insights: renderInsights }[tab]());
+    panel.replaceChildren(...{ canvas: renderCanvas, screens: renderScreens, students: renderStudents, levels: renderLevels, display: renderDisplay, insights: renderInsights }[tab]());
     if (key) {
       const el = panel.querySelector(`[data-key="${CSS.escape(key)}"]`);
       if (el) {
@@ -196,6 +202,118 @@
     if (!q) return true;
     const t = `${st.realName} ${st.name} ${sectionsOf(st)}`.toLowerCase();
     return q.toLowerCase().split(/\s+/).every((w) => t.includes(w));
+  }
+
+
+  // ---------- Canvas connection ----------
+
+  async function findCourses() {
+    conn.busy = true; conn.msg = ''; conn.courses = null; render();
+    try {
+      const r = await api('/api/admin/canvas/courses', { method: 'POST', body: { canvasUrl: conn.url, token: conn.token } });
+      conn.url = r.canvasUrl;
+      conn.courses = r.courses;
+      conn.courseId = r.courseId && r.courses.some((c) => c.id === r.courseId) ? r.courseId : (r.courses[0] || {}).id || '';
+      if (!r.courses.length) conn.msg = 'Canvas didn’t list any courses where you’re a teacher or TA. You can still connect by pasting a link to the course page into the Canvas address box.';
+      if (!r.courses.length && r.courseId) { conn.courses = [{ id: r.courseId, name: `Course ${r.courseId}`, term: '', code: '' }]; conn.courseId = r.courseId; }
+    } catch (err) {
+      conn.msg = err.message;
+    }
+    conn.busy = false;
+    render();
+  }
+
+  async function connectCourse() {
+    conn.busy = true; conn.msg = ''; render();
+    try {
+      canvas = await api('/api/admin/canvas/connect', { method: 'POST', body: { canvasUrl: conn.url, token: conn.token, courseId: conn.courseId } });
+      Object.assign(conn, { token: '', courses: null, switching: false, busy: false });
+      dirty = false;
+      settings = null;
+      status('Connected ✓ Loading your class…', 'ok');
+      await new Promise((r) => setTimeout(r, 1500));
+      tab = 'screens';
+      await load();
+      return;
+    } catch (err) {
+      conn.msg = err.message;
+    }
+    conn.busy = false;
+    render();
+  }
+
+  async function disconnectCanvas() {
+    if (!confirm('Disconnect from Canvas? The saved token will be deleted from this computer and the display will show the demo class.')) return;
+    try {
+      canvas = await api('/api/admin/canvas/disconnect', { method: 'POST', body: {} });
+      settings = null;
+      dirty = false;
+      await load();
+    } catch (err) {
+      conn.msg = err.message;
+      render();
+    }
+  }
+
+  function renderCanvas() {
+    if (!canvas) return [h('div', { className: 'panel' }, h('p', { className: 'hint' }, 'Canvas settings aren’t available.'))];
+    const host = canvas.canvasUrl ? new URL(canvas.canvasUrl).host : '';
+    const showForm = !canvas.connected || conn.switching;
+    const summary = canvas.connected
+      ? h('div', {},
+        h('p', {}, 'Connected to ', h('strong', {}, canvas.courseName || `course ${canvas.courseId}`), ` (course ${canvas.courseId}) on ${host}.`),
+        canvas.locked
+          ? h('p', { className: 'hint' }, 'This connection comes from environment variables on this computer, so it can only be changed there.')
+          : h('div', { className: 'row' },
+            !conn.switching ? h('button', { className: 'btn', onclick: () => { conn.switching = true; conn.courses = null; render(); } }, 'Switch course') : null,
+            h('button', { className: 'btn danger', onclick: disconnectCanvas }, 'Disconnect')))
+      : h('p', {}, h('strong', {}, 'Not connected yet.'), ' The display is showing a pretend class so you can try everything out. Connect your Canvas course below. It takes about a minute.');
+
+    const canReuse = canvas.connected && conn.url.replace(/\/+$/, '') === canvas.canvasUrl;
+    const form = showForm ? h('form', { onsubmit: (e) => { e.preventDefault(); if (conn.courses && conn.courseId) connectCourse(); else findCourses(); } },
+      h('h3', {}, '1. Your Canvas address'),
+      h('label', { className: 'field' }, h('span', {}, 'Copy it from your browser’s address bar while you’re in Canvas. If you paste the link to your course page, that course is picked for you.'),
+        h('input', { type: 'text', value: conn.url, placeholder: 'https://yourschool.instructure.com', autocomplete: 'url', 'data-key': 'canvas-url', required: true,
+          oninput: (e) => { conn.url = e.target.value; conn.courses = null; } })),
+      h('h3', {}, '2. An access token'),
+      h('details', { open: !canvas.connected },
+        h('summary', {}, 'How do I get a token?'),
+        h('ol', { className: 'steps' },
+          h('li', {}, 'In Canvas, click ', h('strong', {}, 'Account'), ' (your picture, top left), then ', h('strong', {}, 'Settings'), '.'),
+          h('li', {}, 'Scroll to ', h('strong', {}, 'Approved Integrations'), ' and click ', h('strong', {}, '+ New Access Token'), '.'),
+          h('li', {}, 'For purpose, type “Class Quest”. Leave the expiry blank, or pick the end of the term. Click ', h('strong', {}, 'Generate Token'), '.'),
+          h('li', {}, 'Copy the long token and paste it below. Canvas only shows it once.')),
+        h('p', { className: 'hint' }, 'Treat the token like a password. It is saved only on this computer (in the data folder) and never sent to the class display. You can delete it any time from Canvas → Settings.')),
+      h('label', { className: 'field' }, h('span', {}, canReuse ? 'Access token (leave blank to keep using the current one)' : 'Access token'),
+        h('input', { type: 'password', value: conn.token, autocomplete: 'off', spellcheck: 'false', 'data-key': 'canvas-token', required: !canReuse,
+          oninput: (e) => { conn.token = e.target.value; } })),
+      h('div', { className: 'row' },
+        h('button', { className: `btn${conn.courses ? '' : ' primary'}`, type: conn.courses ? 'button' : 'submit', disabled: conn.busy, onclick: conn.courses ? findCourses : null },
+          conn.busy && !conn.courses ? 'Checking…' : 'Find my courses'),
+        conn.switching ? h('button', { className: 'btn', type: 'button', onclick: () => { conn.switching = false; conn.msg = ''; render(); } }, 'Cancel') : null),
+      conn.courses && conn.courses.length ? [
+        h('h3', {}, '3. Pick your course'),
+        h('div', { className: 'picker', role: 'radiogroup', 'aria-label': 'Course' },
+          conn.courses.map((c) => h('label', { className: 'picker-row course-row' },
+            h('input', { type: 'radio', name: 'course', value: c.id, checked: c.id === conn.courseId, 'data-key': `course-${c.id}`, onchange: () => { conn.courseId = c.id; } }),
+            h('span', {}, c.name, h('span', { className: 'meta-text' }, [c.code, c.term].filter(Boolean).length ? ` · ${[c.code, c.term].filter(Boolean).join(' · ')}` : '')),
+            h('span', { className: 'meta-text' }, `#${c.id}`)))),
+        h('div', { className: 'row', style: 'margin-top:12px' },
+          h('button', { className: 'btn primary', type: 'submit', disabled: conn.busy }, conn.busy ? 'Connecting…' : 'Connect this course')),
+      ] : null,
+      conn.msg ? h('p', { className: 'error-text', role: 'alert' }, conn.msg) : null) : null;
+
+    return [h('div', { className: 'panel' },
+      h('h2', {}, 'Canvas'),
+      summary,
+      form,
+      h('p', { className: 'hint', style: 'margin-top:16px' }, 'Your account needs to be a teacher or TA in the course so Class Quest can read each student’s module progress.'))];
+  }
+
+  function demoBanner() {
+    if (!canvas || canvas.connected) return null;
+    return h('div', { className: 'panel notice' }, 'These are pretend students from the demo class. ',
+      h('button', { className: 'btn primary', onclick: () => { tab = 'canvas'; render(); } }, 'Connect Canvas'));
   }
 
   function renderScreens() {
@@ -306,7 +424,7 @@
       view.goal ? h('p', { className: 'hint', style: 'margin-top:8px' },
         `So far: ${members.reduce((n, s) => n + s.done, 0)} of ${members.reduce((n, s) => n + s.total, 0)} possible challenges completed by this screen's students.`) : null);
 
-    return [h('div', { className: 'panel' },
+    return [demoBanner(), h('div', { className: 'panel' },
       h('h2', {}, 'Screens'),
       h('p', { className: 'hint' }, 'Each screen is a separate display with its own link, showing only the students you choose. Use one per class period, a small group, or whatever you need. Places are ranked within the screen.'),
       h('div', { className: 'screens' }, list, editor))];
@@ -472,11 +590,11 @@
 
   // ---------- wiring ----------
 
-  for (const t of ['screens', 'students', 'levels', 'display', 'insights']) {
+  for (const t of TABS) {
     $(`tab-${t}`).addEventListener('click', () => { tab = t; render(); });
   }
   $('app').querySelector('.tabs').addEventListener('keydown', (e) => {
-    const tabs = ['screens', 'students', 'levels', 'display', 'insights'];
+    const tabs = TABS;
     const i = tabs.indexOf(tab);
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
       tab = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
