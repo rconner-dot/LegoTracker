@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Teacher controls · Class Quest</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="title-wrap">
+      <h1>Teacher controls</h1>
+      <span id="courseName" class="updated"></span>
+    </div>
+    <div class="meta">
+      <span id="mode" class="badge"></span>
+      <span id="updated" class="updated"></span>
+      <button id="refresh" class="btn" hidden>Refresh from Canvas</button>
+      <a class="btn" href="/" target="_blank" rel="noopener">Open display ↗</a>
+      <button id="logout" class="btn" hidden>Lock</button>
+    </div>
+  </header>
+  <div id="error" class="error" role="alert" hidden></div>
+
+  <main id="loginView" class="admin" hidden>
+    <form id="loginForm" class="panel login">
+      <h2>Enter teacher PIN</h2>
+      <p class="hint">The PIN was printed when Class Quest started, or set with <code>ADMIN_PIN</code>.</p>
+      <div class="row">
+        <input id="pin" type="password" inputmode="numeric" autocomplete="current-password" aria-label="PIN" required>
+        <button class="btn primary">Unlock</button>
+      </div>
+      <p id="loginError" class="hint" role="alert"></p>
+    </form>
+  </main>
+
+  <main id="blockedView" class="admin" hidden>
+    <div class="panel">
+      <h2>Teacher controls are locked</h2>
+      <p id="blockedText" class="hint"></p>
+    </div>
+  </main>
+
+  <main id="app" class="admin" hidden>
+    <nav class="tabs" role="tablist" aria-label="Sections">
+      <button class="tab" role="tab" id="tab-screens" aria-controls="panel-screens">Screens</button>
+      <button class="tab" role="tab" id="tab-students" aria-controls="panel-students">Students</button>
+      <button class="tab" role="tab" id="tab-levels" aria-controls="panel-levels">Levels</button>
+      <button class="tab" role="tab" id="tab-display" aria-controls="panel-display">Display</button>
+      <button class="tab" role="tab" id="tab-insights" aria-controls="panel-insights">Insights</button>
+    </nav>
+    <section id="panel-screens" role="tabpanel" aria-labelledby="tab-screens"></section>
+    <section id="panel-students" role="tabpanel" aria-labelledby="tab-students" hidden></section>
+    <section id="panel-levels" role="tabpanel" aria-labelledby="tab-levels" hidden></section>
+    <section id="panel-display" role="tabpanel" aria-labelledby="tab-display" hidden></section>
+    <section id="panel-insights" role="tabpanel" aria-labelledby="tab-insights" hidden></section>
+  </main>
+
+  <dialog id="charDialog" class="dialog" aria-labelledby="charTitle">
+    <button class="close" data-close aria-label="Close">✕</button>
+    <h2 id="charTitle">Pick a character</h2>
+    <p class="sub">Faded characters already belong to someone else. You can still pick them.</p>
+    <div class="row" style="margin-bottom:12px"><button id="charAuto" class="btn">Automatic</button></div>
+    <div id="charGrid" class="char-grid"></div>
+  </dialog>
+
+  <div id="status" class="status" role="status" hidden></div>
+
+  <script src="sprites.js"></script>
+  <script src="worlds.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>

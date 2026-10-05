@@ -5,6 +5,8 @@ const assert = require('node:assert');
 const { CanvasClient, parseNextLink, mapLimit } = require('../lib/canvas');
 const { CanvasSource, DemoSource } = require('../lib/sources');
 const { Tracker } = require('../lib/tracker');
+const { SettingsStore } = require('../lib/settings');
+const memSettings = () => new SettingsStore({ config: {} });
 
 function response(status, body, headers = {}) {
   return {
@@ -86,12 +88,14 @@ test('CanvasSource + Tracker produce a ranked game state', async () => {
   const fake = {
     getCourse: async () => ({ name: 'Bio 101' }),
     listStudents: async () => [{ id: 1, name: 'Ava Smith' }, { id: 2, name: 'Ben Jones' }],
+    listSections: async () => { throw new Error('403'); },
+    listSubmissions: async () => [],
     listModules: async (_c, studentId) => [{
       id: 10, name: 'Cells', position: 1, state: studentId === 2 ? 'completed' : 'started',
       items: [{ id: 100, title: 'Cell quiz', completion_requirement: { type: 'must_submit', completed: studentId === 2 } }],
     }],
   };
-  const tracker = new Tracker({ source: new CanvasSource({ courseId: 1 }, fake), config: {}, mode: 'live' });
+  const tracker = new Tracker({ source: new CanvasSource({ courseId: 1 }, fake), settings: memSettings(), mode: 'live' });
   await tracker.refresh();
   const s = tracker.getState();
   assert.strictEqual(s.error, null);
@@ -103,7 +107,7 @@ test('Tracker keeps the last good state when Canvas fails', async () => {
   let fail = false;
   const demo = new DemoSource({ students: 3 });
   const source = { load: () => (fail ? Promise.reject(new Error('boom')) : demo.load()) };
-  const tracker = new Tracker({ source, config: {}, mode: 'demo' });
+  const tracker = new Tracker({ source, settings: memSettings(), mode: 'demo' });
   await tracker.refresh();
   fail = true;
   await tracker.refresh();
@@ -113,7 +117,7 @@ test('Tracker keeps the last good state when Canvas fails', async () => {
 });
 
 test('DemoSource advances over time and produces events', async () => {
-  const tracker = new Tracker({ source: new DemoSource({ students: 5 }), config: {}, mode: 'demo' });
+  const tracker = new Tracker({ source: new DemoSource({ students: 5 }), settings: memSettings(), mode: 'demo' });
   for (let i = 0; i < 6; i++) await tracker.refresh();
   assert.ok(tracker.getState().events.length > 0);
 });

@@ -200,6 +200,40 @@
     }
   }
 
+  // 8x8 icons for badges and decorations.
+  const ICONS = {
+    champion: { rows: ['kkkkkkkk', 'kacaaaak', 'kacaaaak', '.kaaaak.', '..kaak..', '...kk...', '..kaak..', '.kkkkkk.'],
+      colors: { k: '#101018', a: '#fcd03c', c: '#fff8c0' } },
+    trailblazer: { rows: ['...aa...', '...aa...', 'aaaaaaaa', '.abaaba.', '..aaaa..', '.aa..aa.', 'aa....aa', '........'],
+      colors: { a: '#fcd03c', b: '#b08810' } },
+    onfire: { rows: ['...a....', '..aa..a.', '..aaa.a.', '.aabaaa.', '.abbbaa.', 'aabbbbaa', 'aabbbbaa', '.aaaaaa.'],
+      colors: { a: '#f83800', b: '#fcd03c' } },
+    early: { rows: ['..kkkk..', '.kwwwwk.', 'kwwkwwwk', 'kwwkwwwk', 'kwwkkkwk', 'kwwwwwwk', '.kwwwwk.', '..kkkk..'],
+      colors: { k: '#3cbcfc', w: '#ffffff' } },
+    clockwork: { rows: ['aaaaaaaa', 'abbbbbba', 'abbbbwba', 'abbbwbba', 'awbwbbba', '.abwbba.', '..abba..', '...aa...'],
+      colors: { a: '#58d854', b: '#1c7c1c', w: '#ffffff' } },
+    crown: { rows: ['a..aa..a', 'aa.aa.aa', 'aaaaaaaa', 'abaabaab', 'aaaaaaaa'],
+      colors: { a: '#fcd03c', b: '#e83c3c' } },
+    pace: { rows: ['..aaaa..', '.aaaaaa.', 'aawaawaa', 'aakaakaa', 'aaaaaaaa', 'aaaaaaaa', 'aaaaaaaa', 'a.aa.aa.'],
+      colors: { a: '#c8c8f0', w: '#ffffff', k: '#101018' } },
+  };
+
+  const iconCache = new Map();
+  function renderIcon(key, scale) {
+    const icon = ICONS[key];
+    if (!icon) return null;
+    const s = Math.max(1, Math.round(scale));
+    const ck = `${key}|${s}`;
+    let c = iconCache.get(ck);
+    if (c) return c;
+    c = document.createElement('canvas');
+    c.width = 8 * s;
+    c.height = icon.rows.length * s;
+    drawBitmap(c.getContext('2d'), icon.rows, icon.colors, 0, 0, s);
+    iconCache.set(ck, c);
+    return c;
+  }
+
   const cache = new Map();
   // Returns an offscreen canvas of the sprite at an integer device-pixel scale.
   function renderSprite(index, frame, scale) {
@@ -216,5 +250,5 @@
     return c;
   }
 
-  return { FAMILIES, FAMILY_KEYS, PALETTES, CHARACTER_COUNT, decodeCharacter, parseCharacterSpec, drawBitmap, renderSprite };
+  return { FAMILIES, FAMILY_KEYS, PALETTES, CHARACTER_COUNT, ICONS, decodeCharacter, parseCharacterSpec, drawBitmap, renderSprite, renderIcon };
 });

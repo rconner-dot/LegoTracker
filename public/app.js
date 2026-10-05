@@ -2,7 +2,7 @@
 (() => {
   'use strict';
 
-  const { renderSprite, decodeCharacter, CHARACTER_COUNT } = window.Sprites;
+  const { renderSprite, renderIcon, decodeCharacter, CHARACTER_COUNT } = window.Sprites;
   const { themeFor, drawScene, drawObstacle, drawDoneFlag, drawTrophy, drawFinish, rect } = window.Worlds;
   const $ = (id) => document.getElementById(id);
 
@@ -10,6 +10,7 @@
   const LANE = 30, HEADER = 12, GROUND = 5, GUTTER = 24, PAD = 10, FINISH = 26, JUMP = 9;
   const FONT = '"Press Start 2P", ui-monospace, monospace';
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const params = new URLSearchParams(location.search);
 
   const canvas = $('track');
   const ctx = canvas.getContext('2d');
@@ -24,18 +25,79 @@
   let hoverSlot = -1;
   let selectedId = null;
   let detailRun = null;
+  let viewId = params.get('view') || '';
+  let boardOverride = params.has('board') ? params.get('board') !== '0' : null;
+  let leaderId = null;
+  let lastGoalDone = null;
+  let pollTimer = null;
   const actors = new Map();
   const seen = new Set();
   const particles = [];
   const floaters = [];
   const spriteUrls = new Map();
 
+  const storage = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode */ } },
+  };
+
+  // ---------- sound ----------
+
+  const Sound = (() => {
+    let ac = null;
+    let on = false;
+    function audio() {
+      if (!ac) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return null;
+        ac = new AC();
+      }
+      if (ac.state === 'suspended') ac.resume();
+      return ac;
+    }
+    function tone(freq, start, dur, type, vol) {
+      const a = audio();
+      if (!a) return;
+      const t0 = a.currentTime + start;
+      const o = a.createOscillator();
+      const g = a.createGain();
+      o.type = type;
+      o.frequency.setValueAtTime(freq, t0);
+      g.gain.setValueAtTime(vol, t0);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      o.connect(g).connect(a.destination);
+      o.start(t0);
+      o.stop(t0 + dur + 0.02);
+    }
+    const seq = (notes, step, type = 'square', vol = 0.04) => notes.forEach((f, i) => f && tone(f, i * step, step * 0.95, type, vol));
+    const SONGS = {
+      coin: () => seq([988, 1319], 0.07),
+      level: () => seq([523, 659, 784, 1047], 0.09),
+      finish: () => seq([523, 659, 784, 1047, 0, 784, 1047, 1319], 0.11),
+      badge: () => seq([784, 988, 1175, 1568], 0.07, 'triangle', 0.06),
+      lead: () => seq([392, 523, 659, 784], 0.07),
+      goal: () => seq([523, 523, 523, 659, 0, 587, 659, 784, 0, 1047], 0.1),
+    };
+    return {
+      get on() { return on; },
+      set(v) { on = v; if (v) audio(); },
+      unlock() { if (on) audio(); },
+      play(kind) { if (on && SONGS[kind]) SONGS[kind](); },
+    };
+  })();
+
   // ---------- data ----------
+
+  function schedulePoll(seconds) {
+    clearTimeout(pollTimer);
+    pollTimer = setTimeout(poll, seconds * 1000);
+  }
 
   async function poll() {
     let delay = 10;
     try {
-      const res = await fetch('/api/state', { cache: 'no-store' });
+      const qs = viewId ? `?view=${encodeURIComponent(viewId)}` : '';
+      const res = await fetch(`/api/state${qs}`, { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const s = await res.json();
       delay = s.pollSeconds || delay;
@@ -43,11 +105,13 @@
     } catch (err) {
       showError(`Can't reach the Class Quest server (${err.message}). Retrying…`);
     }
-    setTimeout(poll, delay * 1000);
+    schedulePoll(delay);
   }
 
   function applyState(s) {
     if (bootId && s.bootId !== bootId) { seen.clear(); firstLoad = true; }
+    const viewChanged = state && state.view.id !== s.view.id;
+    if (viewChanged) { firstLoad = true; actors.clear(); leaderId = null; lastGoalDone = null; }
     bootId = s.bootId;
     state = s;
 
@@ -56,28 +120,33 @@
     $('mode').textContent = s.mode === 'demo' ? 'DEMO' : 'LIVE';
     $('mode').className = `badge ${s.mode}`;
     $('updated').textContent = s.updatedAt
-      ? `Updated ${new Date(s.updatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: s.mode === 'demo' ? '2-digit' : undefined })}`
+      ? `Updated ${new Date(s.updatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
       : 'Connecting to Canvas…';
     if (s.error) showError(`Couldn't refresh from Canvas: ${s.error}${s.updatedAt ? ' Showing the last progress we saw.' : ''}`);
     else showError(null);
 
+    renderViewPicker(s);
+    renderGoal(s);
+    applyDisplay(s.display);
+
     const empty = $('empty');
     if (s.updatedAt && !s.levels.length) {
       empty.hidden = false;
-      empty.textContent = 'No modules with completion requirements yet. Add requirements to your Canvas modules and they will appear here as levels.';
+      empty.textContent = 'No modules with completion requirements yet. Add requirements to your Canvas modules (or check the Levels tab in Teacher controls) and they will appear here.';
     } else if (s.updatedAt && !s.students.length) {
       empty.hidden = false;
-      empty.textContent = 'No active students are enrolled in this course yet.';
+      empty.textContent = `Nobody is on the “${s.view.name}” screen yet. Choose students in Teacher controls.`;
     } else {
       empty.hidden = true;
     }
 
-    const key = JSON.stringify([s.levels.map((l) => [l.id, l.items.length, l.theme, l.name]), s.students.length]);
+    const key = JSON.stringify([s.levels.map((l) => [l.id, l.items.length, l.theme, l.name]), s.students.length, s.display.showRanks, s.pace && s.pace.position]);
     if (key !== structureKey) { structureKey = key; layout = null; }
 
     syncActors(s);
     renderBoard(s);
     handleEvents(s.events || []);
+    checkLeader(s);
     if ($('detail').open) renderDetail(false);
     firstLoad = false;
   }
@@ -86,6 +155,64 @@
     const el = $('error');
     el.hidden = !msg;
     el.textContent = msg || '';
+  }
+
+  function renderViewPicker(s) {
+    const sel = $('viewPicker');
+    sel.hidden = s.views.length < 2;
+    const sig = JSON.stringify(s.views);
+    if (sel.dataset.sig !== sig) {
+      sel.dataset.sig = sig;
+      sel.replaceChildren(...s.views.map((v) => new Option(v.name, v.id)));
+    }
+    sel.value = s.view.id;
+  }
+
+  function renderGoal(s) {
+    const el = $('goal');
+    if (!s.goal) { el.hidden = true; lastGoalDone = null; return; }
+    el.hidden = false;
+    const pct = Math.min(100, Math.round((s.goal.done / s.goal.target) * 100));
+    $('goalFill').style.width = `${pct}%`;
+    const reached = s.goal.done >= s.goal.target;
+    el.classList.toggle('reached', reached);
+    $('goalText').textContent = `${s.goal.done}/${s.goal.target}${s.goal.reward ? ` · ${s.goal.reward}` : ''}${reached ? ' ✓' : ''}`;
+    el.setAttribute('aria-label', `Class goal: ${s.goal.done} of ${s.goal.target} challenges${s.goal.reward ? ` for ${s.goal.reward}` : ''}`);
+    if (lastGoalDone != null && lastGoalDone < s.goal.target && reached) {
+      queueToast({ type: 'goal', text: `CLASS GOAL REACHED!${s.goal.reward ? ` ${s.goal.reward}!` : ''}` });
+      confetti(120);
+    }
+    lastGoalDone = s.goal.done;
+  }
+
+  let displayApplied = null;
+  function applyDisplay(d) {
+    const showBoard = boardOverride != null ? boardOverride : d.showBoard;
+    const sig = JSON.stringify([showBoard, d.spotlightSeconds, d.sound]);
+    if (sig === displayApplied) return;
+    const first = displayApplied == null;
+    displayApplied = sig;
+    setBoard(showBoard);
+    const spotParam = params.get('spotlight');
+    configureSpotlight(spotParam != null ? Number(spotParam) || 0 : d.spotlightSeconds);
+    if (first) {
+      const fromUrl = params.get('sound');
+      const saved = fromUrl != null ? (fromUrl === '0' ? '0' : '1') : storage.get('cq-sound');
+      setSound(saved != null ? saved === '1' : d.sound, false);
+    }
+  }
+
+  function setBoard(on) {
+    $('layout').classList.toggle('no-board', !on);
+    $('boardToggle').setAttribute('aria-pressed', String(on));
+    layout = null;
+  }
+
+  function setSound(on, remember) {
+    Sound.set(on);
+    $('soundToggle').setAttribute('aria-pressed', String(on));
+    $('soundToggle').textContent = on ? '♪ On' : '♪ Off';
+    if (remember) storage.set('cq-sound', on ? '1' : '0');
   }
 
   function syncActors(s) {
@@ -109,6 +236,17 @@
     for (const id of [...actors.keys()]) if (!ids.has(id)) actors.delete(id);
   }
 
+  function checkLeader(s) {
+    if (!s.display.showRanks) { leaderId = null; return; }
+    const leaders = s.students.filter((x) => x.rank === 1);
+    const id = leaders.length === 1 ? leaders[0].id : null;
+    if (id && leaderId && id !== leaderId && !firstLoad) {
+      queueToast({ type: 'lead', text: `${leaders[0].name} takes the lead!` });
+      spotlightSoon(id);
+    }
+    if (id || firstLoad) leaderId = id;
+  }
+
   // ---------- leaderboard / ticker / toasts ----------
 
   function spriteUrl(index) {
@@ -116,13 +254,36 @@
     return spriteUrls.get(index);
   }
 
+  const iconUrls = new Map();
+  function iconUrl(key) {
+    if (!iconUrls.has(key)) {
+      const c = renderIcon(key, 4);
+      iconUrls.set(key, c ? c.toDataURL() : '');
+    }
+    return iconUrls.get(key);
+  }
+
   function ordinal(n) {
     const s = ['TH', 'ST', 'ND', 'RD'], v = n % 100;
     return n + (s[(v - 20) % 10] || s[v] || s[0]);
   }
 
+  function badgeIcons(badges, cls) {
+    const wrap = document.createElement('span');
+    wrap.className = cls;
+    for (const b of badges || []) {
+      const img = document.createElement('img');
+      img.src = iconUrl(b.key);
+      img.alt = b.label;
+      img.title = `${b.label}${b.count > 1 ? ` ×${b.count}` : ''}: ${b.desc}`;
+      wrap.appendChild(img);
+    }
+    return wrap;
+  }
+
   function renderBoard(s) {
     const ol = $('board');
+    $('boardTitle').textContent = s.display.showRanks ? 'Leaderboard' : 'Explorers';
     const focusedId = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.id : null;
     ol.replaceChildren(...s.students.map((st) => {
       const li = document.createElement('li');
@@ -131,11 +292,16 @@
       btn.dataset.id = st.id;
       const pct = st.total ? Math.round((st.done / st.total) * 100) : 0;
       const where = st.finished ? 'Quest complete!' : `Level ${st.level + 1} · ${Math.round(st.levelProgress * 100)}%`;
-      btn.setAttribute('aria-label', `${ordinal(st.rank).toLowerCase()} place, ${st.name}, ${where}, ${pct}% of the quest`);
-      btn.innerHTML = `<span class="rank r${st.rank}"></span><img alt=""><span class="name"></span><span class="lvl"></span><span class="bar"><span></span></span>`;
-      btn.querySelector('.rank').textContent = ordinal(st.rank);
+      const place = st.rank ? `${ordinal(st.rank).toLowerCase()} place, ` : '';
+      btn.setAttribute('aria-label', `${place}${st.name}, ${where}, ${pct}% of the quest`);
+      btn.innerHTML = '<span class="rank"></span><img alt=""><span class="name"></span><span class="lvl"></span><span class="bar"><span></span></span>';
+      const rank = btn.querySelector('.rank');
+      if (st.rank) { rank.textContent = ordinal(st.rank); rank.classList.add(`r${st.rank}`); }
+      else rank.textContent = st.finished ? '★' : `L${st.level + 1}`;
       btn.querySelector('img').src = spriteUrl(st.character);
-      btn.querySelector('.name').textContent = st.name;
+      const name = btn.querySelector('.name');
+      name.textContent = st.name;
+      name.appendChild(badgeIcons(st.badges, 'badges'));
       btn.querySelector('.lvl').textContent = st.finished ? '★ DONE' : `LV ${st.level + 1}`;
       btn.querySelector('.bar > span').style.width = `${pct}%`;
       btn.addEventListener('click', () => openDetail(st.id));
@@ -145,6 +311,7 @@
     if (focusedId) { const b = ol.querySelector(`[data-id="${focusedId}"]`); if (b) b.focus(); }
   }
 
+  const SOUND_FOR = { item: 'coin', level: 'level', finish: 'finish', badge: 'badge' };
   function handleEvents(events) {
     const fresh = events.filter((e) => !seen.has(e.id));
     fresh.forEach((e) => seen.add(e.id));
@@ -162,13 +329,18 @@
       ul.appendChild(li);
     }
     if (firstLoad) return;
-    for (const e of fresh) if (e.type !== 'item') queueToast(e);
+    const kinds = new Set(fresh.map((e) => e.type));
+    const loudest = ['finish', 'level', 'badge', 'item'].find((k) => kinds.has(k));
+    if (loudest) Sound.play(SOUND_FOR[loudest]);
+    for (const e of fresh) {
+      if (e.type !== 'item') { queueToast(e, true); spotlightSoon(e.studentId); }
+    }
   }
 
   const toastQueue = [];
   let toastBusy = false;
-  function queueToast(e) {
-    toastQueue.push(e);
+  function queueToast(e, silent) {
+    toastQueue.push({ ...e, silent });
     if (!toastBusy) nextToast();
   }
   function nextToast() {
@@ -178,11 +350,51 @@
     toastBusy = true;
     el.className = `toast ${e.type}`;
     el.textContent = e.type === 'finish' ? `🏆 ${e.text}` : e.type === 'level' ? `LEVEL UP! ${e.text}` : e.text;
+    if (!e.silent && (e.type === 'goal' || e.type === 'lead')) Sound.play(e.type);
     requestAnimationFrame(() => el.classList.add('show'));
     setTimeout(() => {
       el.classList.remove('show');
       setTimeout(nextToast, 300);
     }, 3500);
+  }
+
+  // ---------- spotlight (projector auto-tour) ----------
+
+  const spot = { seconds: 0, timer: null, idx: 0, queue: [], active: false };
+
+  function configureSpotlight(seconds) {
+    seconds = Math.max(0, Math.min(600, seconds || 0));
+    $('spotToggle').setAttribute('aria-pressed', String(seconds > 0));
+    if (seconds === spot.seconds) return;
+    spot.seconds = seconds;
+    clearTimeout(spot.timer);
+    if (seconds > 0) spot.timer = setTimeout(spotlightNext, seconds * 1000);
+    else if (spot.active) $('detail').close();
+  }
+
+  function spotlightSoon(id) {
+    if (spot.seconds <= 0 || !id) return;
+    spot.queue = [id, ...spot.queue.filter((x) => x !== id)].slice(0, 5);
+  }
+
+  function spotlightNext() {
+    if (spot.seconds <= 0) return;
+    const students = state ? state.students : [];
+    if (!students.length || ($('detail').open && !spot.active) || $('gallery').open) {
+      spot.timer = setTimeout(spotlightNext, spot.seconds * 1000);
+      return;
+    }
+    let id = null;
+    while (spot.queue.length && !id) {
+      const q = spot.queue.shift();
+      if (students.some((s) => s.id === q)) id = q;
+    }
+    if (!id) id = students[spot.idx++ % students.length].id;
+    openDetail(id, true);
+    spot.timer = setTimeout(() => {
+      if (spot.active) $('detail').close();
+      spot.timer = setTimeout(spotlightNext, spot.seconds * 1000);
+    }, Math.max(6, spot.seconds * 0.6) * 1000);
   }
 
   // ---------- race track ----------
@@ -338,13 +550,22 @@
     return { x: xOf(a.pos), y: L.headerH + a.lane * L.laneH + L.laneH - GROUND * L.u };
   }
 
+  const CONFETTI = ['#fcd03c', '#f878f8', '#3cdcfc', '#58d854', '#fcfcfc'];
+  function burst(x, y, n) {
+    for (let i = 0; i < n; i++) {
+      particles.push({ x, y, vx: (Math.random() - 0.5) * 220, vy: -120 - Math.random() * 160, life: 0.9 + Math.random() * 0.5,
+        color: CONFETTI[i % CONFETTI.length] });
+    }
+  }
+
+  function confetti(n) {
+    if (!layout || reduceMotion) return;
+    for (let i = 0; i < n / 12; i++) burst(Math.random() * layout.width, Math.random() * Math.min(layout.height, window.innerHeight * 0.6), 12);
+  }
+
   function celebrate(a, lv) {
     const { x, y } = actorFeet(a);
-    const colors = ['#fcd03c', '#f878f8', '#3cdcfc', '#58d854', '#fcfcfc'];
-    for (let i = 0; i < 24; i++) {
-      particles.push({ x, y: y - 10 * layout.u, vx: (Math.random() - 0.5) * 220, vy: -120 - Math.random() * 160, life: 0.9 + Math.random() * 0.5,
-        color: colors[i % colors.length] });
-    }
+    burst(x, y - 10 * layout.u, 24);
     floaters.push({ actor: a, text: lv >= layout.nL ? 'FINISH!' : `LEVEL ${lv + 1}!`, life: 1.6 });
   }
 
@@ -355,6 +576,7 @@
     return 0;
   }
 
+  // Returns the label's left edge so decorations can sit beside it.
   function drawLabel(c, text, cx, bottom, u, color) {
     const fs = u >= 2.5 ? 10 : 8;
     c.font = `${fs}px ${FONT}`;
@@ -366,19 +588,45 @@
     c.fillRect(left, Math.round(bottom - h), w + padX * 2, h);
     c.fillStyle = color;
     c.fillText(text, left + padX, Math.round(bottom - 3));
+    return { left, top: Math.round(bottom - h), h };
   }
 
-  function drawRank(rank, y) {
+  function drawGutter(st, y) {
     const L = layout;
-    const color = rank === 1 ? '#fcd03c' : rank === 2 ? '#c8c8dc' : rank === 3 ? '#d88c4c' : '#6c6c90';
     const cy = y + L.laneH / 2;
     const fs = L.u >= 2.5 ? 12 : 8;
     ctx.font = `${fs}px ${FONT}`;
     ctx.textBaseline = 'middle';
+    let text, color;
+    if (st.rank) {
+      text = ordinal(st.rank);
+      color = st.rank === 1 ? '#fcd03c' : st.rank === 2 ? '#c8c8dc' : st.rank === 3 ? '#d88c4c' : '#6c6c90';
+    } else {
+      text = st.finished ? '★' : `L${st.level + 1}`;
+      color = st.finished ? '#fcd03c' : '#8c8cb0';
+    }
     ctx.fillStyle = color;
-    const text = ordinal(rank);
     const w = ctx.measureText(text).width;
     ctx.fillText(text, Math.round((L.gutter - w) / 2), Math.round(cy));
+  }
+
+  function drawPace(t) {
+    const L = layout;
+    const pace = state.pace;
+    if (!pace || pace.position <= 0) return;
+    const x = Math.round(xOf(Math.min(pace.position, L.nL)));
+    ctx.fillStyle = 'rgba(200,200,240,0.55)';
+    const dash = 3 * L.u;
+    for (let y = L.headerH; y < L.height; y += dash * 2) ctx.fillRect(x - 1, y, 2, dash);
+    const icon = renderIcon('pace', L.u * L.dpr);
+    const bob = Math.sin(t * 2) > 0 ? 0 : L.u;
+    ctx.globalAlpha = 0.9;
+    ctx.drawImage(icon, x - 4 * L.u, 2 * L.u + bob - L.u, 8 * L.u, 8 * L.u);
+    ctx.globalAlpha = 1;
+  }
+
+  function hasBadge(st, key) {
+    return (st.badges || []).some((b) => b.key === key);
   }
 
   function draw(t) {
@@ -393,19 +641,29 @@
       ctx.lineWidth = 2;
       ctx.strokeRect(1, L.headerH + hoverSlot * L.laneH + 1, L.width - 2, L.laneH - 2);
     }
+    drawPace(t);
 
     const list = [...actors.values()].sort((a, b) => a.lane - b.lane);
-    for (const a of list) drawRank(a.student.rank, L.headerH + a.lane * L.laneH);
+    for (const a of list) drawGutter(a.student, L.headerH + a.lane * L.laneH);
     for (const a of list) {
+      const st = a.student;
       const { x, y } = actorFeet(a);
       const jy = yOffset(a, x);
       const frame = a.moving ? Math.floor(a.walk * 8) % 2 : 0;
       const bob = !a.moving && a.hop === 0 && Math.sin(t * 3 + a.phase) > 0.85 ? -L.u : 0;
-      const sprite = renderSprite(a.student.character, frame, L.u * L.dpr);
+      const top = y - 16 * L.u + jy + bob;
+      if (hasBadge(st, 'onfire') && !reduceMotion) {
+        const flick = Math.sin(t * 14 + a.phase) > 0 ? 0 : L.u;
+        ctx.globalAlpha = 0.85;
+        ctx.drawImage(renderIcon('onfire', L.u * L.dpr), Math.round(x - 15 * L.u), Math.round(top + 7 * L.u + flick), 8 * L.u, 8 * L.u - flick);
+        ctx.globalAlpha = 1;
+      }
+      const sprite = renderSprite(st.character, frame, L.u * L.dpr);
       if (jy < 0) rect(ctx, x - 5 * L.u, y - L.u, 10 * L.u, L.u, 'rgba(0,0,0,0.35)');
-      ctx.drawImage(sprite, Math.round(x - 8 * L.u), Math.round(y - 16 * L.u + jy + bob), 16 * L.u, 16 * L.u);
-      const color = a.id === selectedId ? '#3cdcfc' : a.student.rank === 1 ? '#fcd03c' : '#ffffff';
-      drawLabel(ctx, a.student.name, x, y - 16 * L.u + jy + bob - L.u, L.u, color);
+      ctx.drawImage(sprite, Math.round(x - 8 * L.u), Math.round(top), 16 * L.u, 16 * L.u);
+      const color = a.id === selectedId ? '#3cdcfc' : st.rank === 1 ? '#fcd03c' : '#ffffff';
+      const lbl = drawLabel(ctx, st.name, x, top - L.u, L.u, color);
+      if (st.rank === 1) ctx.drawImage(renderIcon('crown', L.u * L.dpr), lbl.left - 9 * L.u, lbl.top + lbl.h / 2 - 2.5 * L.u, 8 * L.u, 5 * L.u);
     }
     for (const p of particles) rect(ctx, p.x, p.y, L.u * 1.5, L.u * 1.5, p.color);
     for (const f of floaters) {
@@ -419,11 +677,22 @@
 
   // ---------- student detail ----------
 
-  function openDetail(id) {
+  function openDetail(id, fromSpotlight) {
     selectedId = id;
+    spot.active = !!fromSpotlight;
     renderDetail(true);
     const dlg = $('detail');
+    dlg.classList.toggle('spotlight', !!fromSpotlight);
     if (!dlg.open) dlg.showModal();
+  }
+
+  function formatDue(iso) {
+    const d = new Date(iso);
+    const days = Math.round((d - Date.now()) / 86400000);
+    const when = d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    if (days === 0) return `due today`;
+    if (days === 1) return `due tomorrow`;
+    return days < 0 ? `was due ${when}` : `due ${when}`;
   }
 
   function renderDetail(restartRun) {
@@ -437,7 +706,32 @@
     $('dSprite').src = spriteUrl(st.character);
     $('dSprite').alt = decodeCharacter(st.character).label;
     $('dName').textContent = st.name;
-    $('dSub').textContent = `${ordinal(st.rank)} place of ${state.students.length} · ${st.done}/${st.total} challenges · ${pct}% of the quest`;
+    const place = st.rank ? `${ordinal(st.rank)} place of ${state.students.length} · ` : '';
+    $('dSub').textContent = `${place}${st.done}/${st.total} challenges · ${pct}% of the quest`;
+
+    const hl = $('dHighlights');
+    const bits = [];
+    if (st.ahead) bits.push(`⚡ ${st.ahead} ahead of pace!`);
+    const doneIds = st.finished ? new Set() : new Set((st.levels[li].doneItemIds || []).map(String));
+    const next = st.finished ? null : level.items.find((i) => !doneIds.has(String(i.id)));
+    if (next) bits.push(`Next up: ${next.title}${next.dueAt ? ` (${formatDue(next.dueAt)})` : ''}`);
+    hl.textContent = bits.join('   ·   ');
+    hl.hidden = !bits.length;
+
+    const badges = $('dBadges');
+    badges.replaceChildren(...(st.badges || []).map((b) => {
+      const el = document.createElement('li');
+      const img = document.createElement('img');
+      img.src = iconUrl(b.key);
+      img.alt = '';
+      const text = document.createElement('span');
+      text.innerHTML = '<strong></strong><br><small></small>';
+      text.querySelector('strong').textContent = `${b.label}${b.count > 1 ? ` ×${b.count}` : ''}`;
+      text.querySelector('small').textContent = b.desc;
+      el.append(img, text);
+      return el;
+    }));
+    $('dBadgesWrap').hidden = !(st.badges || []).length;
 
     const items = $('dItems');
     if (st.finished) {
@@ -446,7 +740,6 @@
     } else {
       const theme = themeFor(li, level.theme);
       $('dLevelTitle').textContent = `Level ${li + 1}: ${level.name} (${theme.name})`;
-      const doneIds = new Set((st.levels[li].doneItemIds || []).map(String));
       items.replaceChildren(...level.items.map((item, j) => {
         const el = document.createElement('li');
         const done = doneIds.has(String(item.id));
@@ -455,6 +748,12 @@
         mark.className = 'mark';
         mark.textContent = done ? '✓' : String(j + 1);
         el.append(mark, item.title);
+        if (!done && item.dueAt) {
+          const due = document.createElement('span');
+          due.className = 'count';
+          due.textContent = formatDue(item.dueAt);
+          el.append(due);
+        }
         return el;
       }));
     }
@@ -483,15 +782,18 @@
   function drawDetail(dt, t) {
     const st = state && state.students.find((s) => s.id === selectedId);
     if (!st || !detailRun) return;
-    const cssW = scene.clientWidth;
-    if (!cssW) return;
+    const availW = scene.parentElement.clientWidth - 8;
+    if (availW <= 0) return;
     const dpr = window.devicePixelRatio || 1;
     const UNITS_W = 220, UNITS_H = 80;
-    const u = cssW / UNITS_W;
+    // Fit the width, but leave room for the checklist on short projector screens.
+    const u = Math.min(availW / UNITS_W, Math.max(2, (window.innerHeight * 0.34) / UNITS_H));
+    const cssW = Math.round(UNITS_W * u);
     const cssH = Math.round(UNITS_H * u);
     if (scene.width !== Math.round(cssW * dpr) || scene.height !== Math.round(cssH * dpr)) {
       scene.width = Math.round(cssW * dpr);
       scene.height = Math.round(cssH * dpr);
+      scene.style.width = `${cssW}px`;
       scene.style.height = `${cssH}px`;
     }
     sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -500,7 +802,7 @@
     const startX = 24 * u, endX = cssW - 24 * u, span = endX - startX;
     const nL = state.levels.length;
     const li = Math.min(st.level, nL - 1);
-    let obstacles = [];
+    const obstacles = [];
 
     if (st.finished) {
       drawFinish(sctx, 0, 0, cssW, cssH, u, 10);
@@ -567,9 +869,6 @@
         img.alt = c.label;
         const cap = document.createElement('figcaption');
         cap.textContent = c.label;
-        const code = document.createElement('code');
-        code.textContent = c.spec;
-        cap.append(document.createElement('br'), code);
         fig.append(img, cap);
         grid.appendChild(fig);
       }
@@ -596,13 +895,35 @@
       if (e.target === dlg || e.target.hasAttribute('data-close')) dlg.close();
     });
   }
-  $('detail').addEventListener('close', () => { selectedId = null; detailRun = null; });
+  $('detail').addEventListener('close', () => { selectedId = null; detailRun = null; spot.active = false; });
   $('galleryLink').addEventListener('click', (e) => { e.preventDefault(); openGallery(); });
   $('boardToggle').addEventListener('click', () => {
-    const on = !$('layout').classList.toggle('no-board');
-    $('boardToggle').setAttribute('aria-pressed', String(on));
-    layout = null;
+    boardOverride = $('boardToggle').getAttribute('aria-pressed') !== 'true';
+    setBoard(boardOverride);
   });
+  $('soundToggle').addEventListener('click', () => {
+    setSound(!Sound.on, true);
+    Sound.play('coin');
+  });
+  $('spotToggle').addEventListener('click', () => {
+    const on = $('spotToggle').getAttribute('aria-pressed') === 'true';
+    configureSpotlight(on ? 0 : (state && state.display.spotlightSeconds) || 20);
+  });
+  $('fullscreen').addEventListener('click', () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
+  });
+  document.addEventListener('fullscreenchange', () => { layout = null; });
+  $('viewPicker').addEventListener('change', (e) => {
+    viewId = e.target.value;
+    const url = new URL(location.href);
+    url.searchParams.set('view', viewId);
+    history.replaceState(null, '', url);
+    poll();
+  });
+  const unlock = () => Sound.unlock();
+  window.addEventListener('pointerdown', unlock);
+  window.addEventListener('keydown', unlock);
   window.addEventListener('resize', () => { layout = null; });
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { layout = null; });
 

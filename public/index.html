@@ -11,11 +11,22 @@
 </head>
 <body>
   <header class="top">
-    <h1 id="title">Class Quest</h1>
+    <div class="title-wrap">
+      <h1 id="title">Class Quest</h1>
+      <select id="viewPicker" class="view-picker" aria-label="Screen" hidden></select>
+    </div>
+    <div id="goal" class="goal" role="img" hidden>
+      <span class="goal-label">Class goal</span>
+      <span class="goal-bar"><span id="goalFill"></span></span>
+      <span id="goalText" class="goal-text"></span>
+    </div>
     <div class="meta">
       <span id="mode" class="badge"></span>
       <span id="updated" class="updated"></span>
+      <button id="soundToggle" class="btn" aria-pressed="false" title="Sound effects">♪ Off</button>
+      <button id="spotToggle" class="btn" aria-pressed="false" title="Automatically show each student's level in turn">Spotlight</button>
       <button id="boardToggle" class="btn" aria-pressed="true">Board</button>
+      <button id="fullscreen" class="btn" title="Full screen">⛶</button>
     </div>
   </header>
   <div id="error" class="error" role="status" hidden></div>
@@ -34,7 +45,8 @@
   <footer class="ticker" id="tickerBar">
     <span class="ticker-label">News</span>
     <ul id="ticker" class="ticker-list" aria-live="polite"></ul>
-    <a href="#" id="galleryLink" class="gallery-link">Characters</a>
+    <a href="#" id="galleryLink" class="footer-link">Characters</a>
+    <a href="/admin" class="footer-link">Teacher</a>
   </footer>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
@@ -44,15 +56,21 @@
     <div class="detail-head">
       <img id="dSprite" class="d-sprite" alt="">
       <div>
+        <p class="spot-tag">Spotlight</p>
         <h2 id="dName"></h2>
         <p id="dSub" class="sub"></p>
       </div>
     </div>
-    <canvas id="scene" class="scene"></canvas>
+    <p id="dHighlights" class="highlights" hidden></p>
+    <div class="scene-wrap"><canvas id="scene" class="scene"></canvas></div>
     <div class="detail-grid">
       <section>
         <h3 id="dLevelTitle"></h3>
         <ol id="dItems" class="items"></ol>
+        <div id="dBadgesWrap" hidden>
+          <h3 class="badges-title">Badges</h3>
+          <ul id="dBadges" class="badge-list"></ul>
+        </div>
       </section>
       <section>
         <h3>Journey</h3>
@@ -64,7 +82,7 @@
   <dialog id="gallery" class="dialog" aria-labelledby="gTitle">
     <button class="close" data-close aria-label="Close">✕</button>
     <h2 id="gTitle">Characters</h2>
-    <p class="sub">Characters are assigned automatically. To pick one for a student, add it to <code>characters</code> in <code>config.json</code>, e.g. <code>"12345": "robot-3"</code>.</p>
+    <p class="sub">Characters are assigned automatically. Your teacher can pick a different one for you in Teacher controls.</p>
     <div id="galleryGrid" class="gallery"></div>
   </dialog>
 

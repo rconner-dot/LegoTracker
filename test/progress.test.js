@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { buildLevels, studentProgress, rankStudents, formatName, assignCharacters, buildSnapshot, diffSnapshots } = require('../lib/progress');
+const { buildLevels, studentProgress, rankStudents, formatName, assignCharacters, buildSnapshot, diffSnapshots, computePace, submissionStats, badgesFor } = require('../lib/progress');
 const { CHARACTER_COUNT } = require('../public/sprites.js');
 
 const req = (id, title, completed) => ({ id, title, type: 'Assignment', completion_requirement: { type: 'must_submit', ...(completed == null ? {} : { completed }) } });
@@ -82,9 +82,8 @@ test('assignCharacters is stable, unique, and respects overrides', () => {
 });
 
 test('diffSnapshots reports cleared items, level ups, and finishes', () => {
-  const levels = buildLevels(courseModules);
   const users = [{ id: 7, name: 'Ava Smith', sortable_name: 'Smith, Ava' }];
-  const snap = (mods) => buildSnapshot({ courseId: 1, course: { name: 'X' }, levels, users, modulesByUser: new Map([['7', mods]]) });
+  const snap = (mods) => buildSnapshot({ courseId: 1, course: { name: 'X' }, courseModules, users, modulesByUser: new Map([['7', mods]]) });
   const s1 = snap([{ id: 1, state: 'started', items: [req(11, 'Hello', false)] }]);
   const s2 = snap([{ id: 1, state: 'completed', items: [req(11, 'Hello', true)] }]);
   let n = 0;
@@ -101,8 +100,55 @@ test('diffSnapshots reports cleared items, level ups, and finishes', () => {
   assert.deepStrictEqual(diffSnapshots(s2, s3, () => ++n).map((e) => e.type), ['item', 'item', 'finish']);
 });
 
-test('snapshots never expose Canvas user ids', () => {
-  const levels = buildLevels(courseModules);
-  const s = buildSnapshot({ courseId: 1, levels, users: [{ id: 987654, name: 'Ava Smith' }], modulesByUser: new Map() });
-  assert.ok(!JSON.stringify(s).includes('987654'));
+test('nicknames and level exclusions come from settings', () => {
+  const users = [{ id: 7, name: 'Ava Smith' }];
+  const s = buildSnapshot({ courseId: 1, courseModules, users, modulesByUser: new Map() },
+    { nicknames: { 7: 'Captain A' }, levels: { exclude: ['1'] }, title: 'Quest!' });
+  assert.strictEqual(s.students[0].name, 'Captain A');
+  assert.strictEqual(s.students[0].autoName, 'Ava S.');
+  assert.deepStrictEqual(s.levels.map((l) => l.name), ['Loops']);
+  assert.strictEqual(s.course.name, 'Quest!');
+});
+
+test('computePace follows due dates in course order', () => {
+  const day = 86400000, now = 10 * day;
+  const at = (d) => new Date(d * day).toISOString();
+  const levels = [
+    { items: [{ title: 'a', dueAt: at(1) }, { title: 'b', dueAt: at(2) }] },
+    { items: [{ title: 'c', dueAt: at(9) }, { title: 'd', dueAt: at(12) }, { title: 'e', dueAt: null }] },
+  ];
+  const p = computePace(levels, now);
+  assert.strictEqual(p.itemsDue, 3);
+  assert.strictEqual(p.position, 1 + 1 / 3);
+  assert.strictEqual(p.nextDue.title, 'd');
+  assert.strictEqual(computePace([{ items: [{ title: 'x', dueAt: null }] }], now), null);
+  assert.strictEqual(computePace(levels, 0).position, 0);
+});
+
+test('badges celebrate streaks, early work, punctuality, and trailblazing', () => {
+  const day = 86400000, now = Date.parse('2026-10-05T12:00:00Z');
+  const sub = (daysAgo, dueInDays, extra = {}) => ({
+    user_id: 7, submitted_at: new Date(now - daysAgo * day).toISOString(), workflow_state: 'submitted',
+    cached_due_date: new Date(now - daysAgo * day + dueInDays * day).toISOString(), late: false, ...extra,
+  });
+  const subs = [sub(0, 2), sub(1, 3), sub(2, 2), sub(3, 0.5), sub(20, 0.1)];
+  const stats = submissionStats(subs, now);
+  assert.deepStrictEqual([stats.activeDays7, stats.early, stats.late, stats.submitted], [4, 3, 0, 5]);
+  assert.deepStrictEqual(badgesFor({ finished: false, trailblazes: 0, stats }).map((b) => b.key), ['onfire', 'early', 'clockwork']);
+  const lateStats = submissionStats([...subs, sub(30, -1, { late: true })], now);
+  assert.ok(!badgesFor({ finished: false, trailblazes: 0, stats: lateStats }).some((b) => b.key === 'clockwork'));
+
+  const users = [{ id: 1, name: 'A B' }, { id: 2, name: 'C D' }];
+  const mod = (when) => [{ id: 1, state: 'completed', completed_at: when, items: [req(11, 'Hello', true)] }];
+  const snap = buildSnapshot({ courseId: 1, courseModules, users, submissions: [],
+    modulesByUser: new Map([['1', mod('2026-10-02T00:00:00Z')], ['2', mod('2026-10-01T00:00:00Z')]]) });
+  const byName = Object.fromEntries(snap.students.map((s) => [s.name, s.badges.map((b) => b.key)]));
+  assert.deepStrictEqual(byName['C D.'], ['trailblazer']);
+  assert.deepStrictEqual(byName['A B.'], []);
+});
+
+test('snapshots never expose Canvas user ids to displays', () => {
+  const s = buildSnapshot({ courseId: 1, courseModules, users: [{ id: 987654, name: 'Ava Smith' }], modulesByUser: new Map() });
+  assert.strictEqual(s.students[0].userId, '987654'); // kept for the teacher side only
+  assert.ok(!s.students[0].id.includes('987654'));
 });
