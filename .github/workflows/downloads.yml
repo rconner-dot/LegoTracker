@@ -1,12 +1,16 @@
 name: Build downloads
 
-# Builds the ready-to-run zips (Class Quest + Node.js, nothing to install).
-# Run it from the Actions tab, or push a tag like v1.2.0 to also publish a
-# release with the zips attached.
+# Builds the ready-to-run zips (Class Quest + Node.js, nothing to install) and
+# publishes them as a GitHub release.
+#
+# To make a release, change the number in the VERSION file and push. Pushing
+# a v* tag or running this from the Actions tab works too.
 on:
   workflow_dispatch:
   push:
+    branches: ['**']
     tags: ['v*']
+    paths: ['VERSION']   # branch pushes only build when VERSION changes
 
 permissions:
   contents: write
@@ -28,10 +32,18 @@ jobs:
           name: class-quest-downloads
           path: dist/*.zip
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/*.zip \
-            --title "Class Quest $GITHUB_REF_NAME" \
-            --notes "Download the zip for your computer (win-x64 for Windows, mac-arm64 for Apple-chip Macs, mac-x64 for older Intel Macs), unzip it, and open START HERE.txt."
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            TAG="$GITHUB_REF_NAME"
+          else
+            TAG="v$(tr -d '[:space:]' < VERSION)"
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; updating its downloads."
+            gh release upload "$TAG" dist/*.zip --clobber
+          else
+            gh release create "$TAG" dist/*.zip --target "$GITHUB_SHA" \
+              --title "Class Quest $TAG" --notes-file .github/release-notes.md
+          fi

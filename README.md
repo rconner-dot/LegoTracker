@@ -174,8 +174,9 @@ node --test test/*.test.js      # or: npm test
 node scripts/package.js         # build the ready-to-run zips into dist/
 ```
 
-The **Build downloads** GitHub Action does the packaging automatically. Run it from the
-Actions tab, or push a tag like `v1.0.0` to publish a release with the zips attached.
+The **Build downloads** GitHub Action does the packaging automatically. To publish a
+release with the zips attached, change the number in `VERSION` and push. Pushing a
+`v*` tag works too.
 
 ```
 server.js          HTTP server: /api/state, /api/admin/*, static files
