@@ -9,8 +9,11 @@ and jumps over the next obstacle.
 
 **On the class display**
 
-- **Race track:** one lane per student, with a crown on the leader and a leaderboard
-  panel.
+- **Race track:** everyone runs on the same track, so you can see at a glance how far
+  each student is. A colored trail behind each character works like a progress bar. With
+  a big class, the track splits into side-by-side columns so names stay readable. Two
+  columns of 13 fit 25 students on a 1080p Boxlight or projector. Calm scenery (the
+  default) tones down backgrounds so names and characters stand out.
 - **Screens:** a separate display for each class period, small group, or any set of
   students you choose. Each one is ranked among its own students.
 - **Student close-up:** click a lane (or turn on **Spotlight** to cycle automatically) to
@@ -20,9 +23,16 @@ and jumps over the next obstacle.
   on the screen pushes forward, with a celebration when it's reached.
 - **Pace marker:** a dashed line and a little ghost showing where the class should be,
   based on Canvas due dates.
-- **Badges:** 🏆 Champion, ⭐ Trailblazer (first to clear a level), 🔥 On Fire (work
-  turned in on 3 days this week, and the character gets a flame), 🕒 Early Bird, and
-  🛡 Clockwork. Badges only celebrate. Nothing on the display shows late or missing work.
+- **Badges:** 13 badges, all of them celebratory. Nothing on the display shows late or
+  missing work. Click **Badges** at the bottom of the display to see every badge, how to
+  earn it, and who has it:
+  - **Progress:** First Steps, Explorer, Halfway Hero, Champion, Trailblazer (first to
+    clear a level), Pace Setter
+  - **Habits:** On Fire (3 days this week, and the character gets a flame), Marathon,
+    Speedrunner, Comeback
+  - **Quality:** Early Bird, Clockwork, Perfectionist
+- **Spotlight:** the badge case is the star. Earned badges are lit up (newly earned ones
+  glow), and the rest show what's left to earn.
 - **Extras:** level-up confetti, pop-ups, a news ticker, optional 8-bit sound effects,
   and a full-screen button.
 - **Cooperative mode:** turns places off entirely if competition isn't right for your
@@ -35,11 +45,12 @@ and jumps over the next obstacle.
 - **Students:** set nicknames or privacy-friendly display names, and pick each student's
   character.
 - **Levels:** choose which modules count and pick each level's world.
+- **Badges:** turn any badge on or off, and see how many students have each one.
 - **Display:** set the title, name style, race or cooperative mode, leaderboard, pace
-  marker, sound, and spotlight timing. **Track size** sets how many levels to show
-  before and after each student's current level. With numbers, each student gets a card
-  of just those levels, and the cards resize to fill the screen (1 before and 1 after
-  fits about 25 students on a projector).
+  marker, sound and spotlight timing.
+  - **Track layout:** shared race track (with automatic or fixed columns), or cards that
+    show only the levels around each student.
+  - **Scenery:** calm or detailed.
 - **Insights (private):** who's behind pace, last time each student turned something in,
   missing and late counts, and a CSV export.
 
@@ -117,11 +128,13 @@ Class Quest uses Canvas **module completion requirements** (Modules → ⋮ → 
 - **Place:** furthest along the track first, among the students on that screen. Ties
   share a place.
 - **Pace:** just past the last required item whose due date has passed.
-- **Badges:** based on the course's submissions:
-  - **Trailblazer:** the first student to complete a module.
-  - **On Fire:** submissions on 3 or more different days in the last week.
-  - **Early Bird:** 3 or more submissions at least 24 hours before the due date.
-  - **Clockwork:** 5 or more submissions with none late.
+- **Badges:** each badge's description in the app says exactly how to earn it.
+  - **Progress badges** come from module progress. Trailblazer goes to the first student
+    to complete a module, and Pace Setter means 3 or more challenges ahead of the due
+    dates.
+  - **Habit and quality badges** come from the course's submissions. They use submission
+    days, how early work was turned in, and whether it was late. Perfectionist compares
+    scores to the assignment's points. Quizzes don't count toward Perfectionist.
 
 Canvas is checked every `refreshSeconds` (60 by default, minimum 15), or right away with
 **Refresh from Canvas** in teacher controls. Each refresh makes about one request per
@@ -137,7 +150,9 @@ Each screen's link is shown in teacher controls. You can add these to any displa
 | `?view=period-3` | Show a specific screen (the plain address shows the default screen) |
 | `&spotlight=20` | Spotlight a student every 20 seconds (`0` turns it off) |
 | `&board=0` | Hide the leaderboard panel |
-| `&before=1&after=2` | Override the track size for this display (`all` for full lanes) |
+| `&columns=2` | Force the number of race-track columns on this display |
+| `&layout=cards&before=1&after=2` | Use cards on this display, showing these levels around each student |
+| `&scenery=detailed` | Full scenery on this display |
 | `&sound=1` | Start with sound on (browsers may still need one click first) |
 
 ## Options

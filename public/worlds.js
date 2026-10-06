@@ -162,7 +162,9 @@
   };
 
   // Paint a full scene (sky, distant scenery, ground) into a rectangle.
-  function drawScene(ctx, theme, x, y, w, h, u, seed, groundUnits) {
+  // `calm` fades the distant scenery and plain-fills the ground so characters,
+  // names and obstacles are easier to read from across a classroom.
+  function drawScene(ctx, theme, x, y, w, h, u, seed, groundUnits, calm) {
     const r = rng(seed * 9973 + 17);
     const groundH = (groundUnits || 5) * u;
     const skyH = h - groundH;
@@ -179,10 +181,13 @@
         rect(ctx, x + dx + u, by, u, u, bands[i - 1]);
       }
     }
+    if (calm) ctx.globalAlpha = 0.3;
     FAR[theme.kind](ctx, theme, x, y, w, skyH, u, r);
+    ctx.globalAlpha = 1;
+    if (calm) rect(ctx, x, y, w, skyH, 'rgba(12,12,28,0.38)'); // dim the sky so characters pop
     rect(ctx, x, y + skyH, w, groundH, theme.ground);
     rect(ctx, x, y + skyH, w, u, theme.groundTop);
-    for (let gy = y + skyH + 2 * u; gy < y + h - u; gy += 2 * u)
+    if (!calm) for (let gy = y + skyH + 2 * u; gy < y + h - u; gy += 2 * u)
       for (let gx = x + ((gy / u) % 4) * u; gx < x + w; gx += 4 * u) if (r() < 0.5) rect(ctx, gx, gy, u, u, theme.groundDots);
     ctx.restore();
   }

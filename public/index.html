@@ -45,6 +45,7 @@
   <footer class="ticker" id="tickerBar">
     <span class="ticker-label">News</span>
     <ul id="ticker" class="ticker-list" aria-live="polite"></ul>
+    <a href="#" id="badgeLink" class="footer-link">Badges</a>
     <a href="#" id="galleryLink" class="footer-link">Characters</a>
     <a href="/admin" class="footer-link">Teacher</a>
   </footer>
@@ -55,28 +56,36 @@
     <button class="close" data-close aria-label="Close">✕</button>
     <div class="detail-head">
       <img id="dSprite" class="d-sprite" alt="">
-      <div>
+      <div class="detail-who">
         <p class="spot-tag">Spotlight</p>
         <h2 id="dName"></h2>
         <p id="dSub" class="sub"></p>
+        <div class="quest-bar" aria-hidden="true"><span id="dBar"></span></div>
       </div>
     </div>
     <p id="dHighlights" class="highlights" hidden></p>
+    <section class="badge-case" aria-labelledby="dCaseTitle">
+      <h3 id="dCaseTitle">Badges</h3>
+      <ul id="dCase" class="case-grid"></ul>
+    </section>
     <div class="scene-wrap"><canvas id="scene" class="scene"></canvas></div>
     <div class="detail-grid">
       <section>
         <h3 id="dLevelTitle"></h3>
         <ol id="dItems" class="items"></ol>
-        <div id="dBadgesWrap" hidden>
-          <h3 class="badges-title">Badges</h3>
-          <ul id="dBadges" class="badge-list"></ul>
-        </div>
       </section>
       <section>
         <h3>Journey</h3>
         <ol id="dLevels" class="journey"></ol>
       </section>
     </div>
+  </dialog>
+
+  <dialog id="badgeBook" class="dialog" aria-labelledby="bTitle">
+    <button class="close" data-close aria-label="Close">✕</button>
+    <h2 id="bTitle">Badges you can earn</h2>
+    <p class="sub">Badges celebrate progress and good habits. Each one shows who on this screen has earned it.</p>
+    <div id="badgeBookList" class="book"></div>
   </dialog>
 
   <dialog id="gallery" class="dialog" aria-labelledby="gTitle">

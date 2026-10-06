@@ -140,7 +140,7 @@
       empty.hidden = true;
     }
 
-    const key = JSON.stringify([s.levels.map((l) => [l.id, l.items.length, l.theme, l.name]), s.students.length, s.display.showRanks, s.display.levelsBefore, s.display.levelsAfter]);
+    const key = JSON.stringify([s.levels.map((l) => [l.id, l.items.length, l.theme, l.name]), s.students.length, s.display.showRanks, s.display.layout, s.display.laneColumns, s.display.scenery, s.display.levelsBefore, s.display.levelsAfter]);
     if (key !== structureKey) { structureKey = key; layout = null; }
 
     syncActors(s);
@@ -271,13 +271,15 @@
   function badgeIcons(badges, cls) {
     const wrap = document.createElement('span');
     wrap.className = cls;
-    for (const b of badges || []) {
+    const list = badges || [];
+    for (const b of list.slice(0, 5)) {
       const img = document.createElement('img');
       img.src = iconUrl(b.key);
       img.alt = b.label;
       img.title = `${b.label}${b.count > 1 ? ` ×${b.count}` : ''}: ${b.desc}`;
       wrap.appendChild(img);
     }
+    if (list.length > 5) wrap.append(`+${list.length - 5}`);
     return wrap;
   }
 
@@ -380,7 +382,7 @@
   function spotlightNext() {
     if (spot.seconds <= 0) return;
     const students = state ? state.students : [];
-    if (!students.length || ($('detail').open && !spot.active) || $('gallery').open) {
+    if (!students.length || ($('detail').open && !spot.active) || $('gallery').open || $('badgeBook').open) {
       spot.timer = setTimeout(spotlightNext, spot.seconds * 1000);
       return;
     }
@@ -401,20 +403,28 @@
   //
   // Two layouts share one coordinate system: positions are in "level units"
   // (0 = start, 2.5 = halfway through level 3, nL = finish line).
-  //  - lanes: every level side by side, one full-width lane per student.
-  //  - tiles: each student gets a card showing only the levels around them
-  //    (Display → levels before/after), laid out in a grid that fills the screen.
+  //  - lanes: everyone on the same track, so you can compare at a glance. With
+  //    many students the lanes split into side-by-side columns to stay readable.
+  //  - tiles: each student gets a card showing only the levels around them.
 
-  const TILE_HEAD = 9, SEG = 32, MARGIN = 0.18, GAP = 6;
+  const TILE_HEAD = 9, SEG = 32, MARGIN = 0.18, GAP = 6, LANE_SEG_MIN = 22;
 
-  function windowSettings() {
+  function layoutSettings() {
     const d = state.display || {};
-    const pick = (param, value) => {
-      const raw = params.get(param);
-      if (raw != null) return raw === '' || raw === 'all' ? null : Math.max(0, Number(raw) || 0);
-      return value == null ? null : value;
-    };
-    return { before: pick('before', d.levelsBefore), after: pick('after', d.levelsAfter) };
+    const num = (raw) => (raw === '' || raw === 'all' ? null : Math.max(0, Number(raw) || 0));
+    let mode = d.layout === 'cards' ? 'tiles' : 'lanes';
+    let before = d.levelsBefore, after = d.levelsAfter;
+    if (params.has('before') || params.has('after')) {
+      mode = 'tiles';
+      if (params.has('before')) before = num(params.get('before'));
+      if (params.has('after')) after = num(params.get('after'));
+    }
+    if (params.get('layout') === 'lanes') mode = 'lanes';
+    if (params.get('layout') === 'cards') mode = 'tiles';
+    if (before == null && after == null) mode = 'lanes';
+    const columns = params.has('columns') ? Math.max(0, Number(params.get('columns')) || 0) : d.laneColumns || 0;
+    const calm = (params.get('scenery') || d.scenery) !== 'detailed';
+    return { mode, before, after, columns, calm };
   }
 
   function availableHeight(wrap) {
@@ -428,29 +438,36 @@
     const nL = state.levels.length;
     const dpr = window.devicePixelRatio || 1;
     const avail = availableHeight(wrap);
-    const win = windowSettings();
-    const L = { width, dpr, nL, n };
+    const cfg = layoutSettings();
+    const L = { width, dpr, nL, n, calm: cfg.calm, mode: cfg.mode };
 
-    if (win.before == null && win.after == null) {
-      // Full-width lanes, shrunk or grown so everyone fits on screen.
-      L.mode = 'lanes';
-      L.u = Math.max(1, Math.min(3, avail / (n * LANE + HEADER)));
+    if (cfg.mode === 'lanes') {
+      // Everyone on one track. More columns only when it makes lanes clearly bigger.
+      const needU = GUTTER + PAD + FINISH + Math.max(1, nL) * LANE_SEG_MIN;
+      const fit = (cols) => {
+        const rows = Math.ceil(n / cols);
+        const colW = (width - (cols - 1) * GAP) / cols;
+        return { cols, rows, colW, u: Math.min(avail / (rows * LANE + HEADER), colW / needU) };
+      };
+      let best = null;
+      if (cfg.columns) best = fit(Math.min(cfg.columns, n));
+      else for (let cols = 1; cols <= Math.min(4, n); cols++) { const f = fit(cols); if (!best || f.u > best.u * 1.12) best = f; }
+      Object.assign(L, { cols: best.cols, rows: best.rows, colW: best.colW });
+      L.u = Math.max(1, Math.min(4, best.u));
       if (width < 700) L.u = Math.min(L.u, 1.5);
       L.gutter = GUTTER * L.u;
       L.trackX = L.gutter + PAD * L.u;
       L.finishW = FINISH * L.u;
-      L.segW = (width - L.trackX - L.finishW) / Math.max(1, nL);
+      L.segW = (L.colW - L.trackX - L.finishW) / Math.max(1, nL);
       L.laneH = LANE * L.u;
       L.headerH = HEADER * L.u;
-      L.height = L.headerH + state.students.length * L.laneH;
+      L.height = L.headerH + L.rows * L.laneH;
     } else {
-      // Cards: try every column count and keep the one with the biggest cards.
-      L.mode = 'tiles';
-      L.before = Math.min(win.before == null ? nL : win.before, nL);
-      L.after = Math.min(win.after == null ? nL : win.after, nL);
+      // Cards: height sets the size; cards stretch to the full width as long as
+      // each level stays at least SEG units wide.
+      L.before = Math.min(cfg.before == null ? nL : cfg.before, nL);
+      L.after = Math.min(cfg.after == null ? nL : cfg.after, nL);
       L.slots = L.before + 1 + L.after;
-      // Height sets the size; cards stretch to the full width as long as each
-      // level stays at least SEG units wide (room for obstacles and the character).
       const hU = TILE_HEAD + LANE;
       let best = { u: 0, cols: 1 };
       for (let cols = 1; cols <= n; cols++) {
@@ -462,7 +479,7 @@
       L.u = Math.max(1, Math.min(4, best.u));
       L.cols = best.cols;
       L.rows = Math.ceil(n / L.cols);
-      L.tileW = (width - (L.cols + 1) * GAP) / L.cols; // stretch cards to use the full width
+      L.tileW = (width - (L.cols + 1) * GAP) / L.cols;
       L.headH = TILE_HEAD * L.u;
       L.laneH = LANE * L.u;
       L.tileH = L.headH + L.laneH;
@@ -512,19 +529,20 @@
 
   function renderLane(variant) {
     const L = layout;
-    const [c, x] = offscreen(L.width, L.laneH, L.dpr);
+    const [c, x] = offscreen(L.colW, L.laneH, L.dpr);
     const groundY = L.laneH - GROUND * L.u;
     state.levels.forEach((level, i) => {
       const theme = themeFor(i, level.theme);
       const x0 = i === 0 ? L.gutter : L.trackX + i * L.segW;
       const x1 = L.trackX + (i + 1) * L.segW;
-      drawScene(x, theme, x0, 0, x1 - x0, L.laneH, L.u, variant * 101 + i * 7 + 1, GROUND);
+      drawScene(x, theme, x0, 0, x1 - x0, L.laneH, L.u, variant * 101 + i * 7 + 1, GROUND, L.calm);
       if (i > 0) rect(x, x0, 0, Math.max(1, L.u / 2), L.laneH, 'rgba(0,0,0,0.45)');
       drawLevelObstacles(x, i, L.trackX + i * L.segW, groundY);
     });
     drawFinish(x, L.trackX + L.nL * L.segW, 0, L.finishW, L.laneH, L.u, GROUND);
-    rect(x, 0, 0, L.gutter, L.laneH, '#101018');
-    rect(x, 0, 0, L.width, 1, 'rgba(0,0,0,0.6)');
+    if (variant === 1) rect(x, L.gutter, 0, L.colW - L.gutter, L.laneH, 'rgba(0,0,0,0.14)'); // zebra rows
+    rect(x, 0, 0, L.gutter, L.laneH, variant === 1 ? '#0c0c16' : '#141424');
+    rect(x, 0, 0, L.colW, 1, 'rgba(0,0,0,0.6)');
     return c;
   }
 
@@ -539,12 +557,12 @@
       return c;
     };
     const levels = state.levels.map((level, i) => make((x) => {
-      drawScene(x, themeFor(i, level.theme), 0, 0, L.segW, L.laneH, L.u, i * 7 + 1, GROUND);
+      drawScene(x, themeFor(i, level.theme), 0, 0, L.segW, L.laneH, L.u, i * 7 + 1, GROUND, L.calm);
       rect(x, 0, 0, Math.max(1, L.u / 2), L.laneH, 'rgba(0,0,0,0.45)');
       drawLevelObstacles(x, i, 0, groundY);
     }));
     const start = make((x) => {
-      drawScene(x, themeFor(0, state.levels[0] && state.levels[0].theme), 0, 0, L.segW, L.laneH, L.u, 3, GROUND);
+      drawScene(x, themeFor(0, state.levels[0] && state.levels[0].theme), 0, 0, L.segW, L.laneH, L.u, 3, GROUND, true);
       rect(x, 0, 0, L.segW, L.laneH, 'rgba(10,10,20,0.45)');
     });
     const finish = make((x) => drawFinish(x, 0, 0, L.segW, L.laneH, L.u, GROUND));
@@ -558,12 +576,16 @@
     return t.length > 1 ? `${t}…` : '';
   }
 
+  // Text grows with the track so names stay readable on big screens.
+  function fontPx(u) {
+    return Math.max(8, Math.min(20, Math.round(u * 5)));
+  }
+
   function renderHeader() {
     const L = layout;
-    const [c, x] = offscreen(L.width, L.headerH, L.dpr);
-    rect(x, 0, 0, L.width, L.headerH, '#101018');
-    const fs = L.u >= 2.5 ? 10 : 8;
-    x.font = `${fs}px ${FONT}`;
+    const [c, x] = offscreen(L.colW, L.headerH, L.dpr);
+    rect(x, 0, 0, L.colW, L.headerH, '#101018');
+    x.font = `${Math.min(fontPx(L.u), Math.floor(L.headerH * 0.6))}px ${FONT}`;
     x.textBaseline = 'middle';
     state.levels.forEach((level, i) => {
       const theme = themeFor(i, level.theme);
@@ -579,7 +601,7 @@
     return c;
   }
 
-  // Lanes: x on the canvas for a track position.
+  // Lanes: x within a column for a track position.
   function xOf(p) {
     const L = layout;
     return p <= L.nL ? L.trackX + p * L.segW : L.trackX + L.nL * L.segW + (p - L.nL) * L.finishW;
@@ -619,24 +641,26 @@
     return Math.floor(a.pos + 1e-6) - layout.before;
   }
 
-  function tileOrigin(col, row) {
+  // Grid cell for a place in the order: lanes fill down each column, cards fill across.
+  function cellFor(slot) {
     const L = layout;
-    return { x: GAP + col * (L.tileW + GAP), y: GAP + row * (L.tileH + GAP) };
+    return L.mode === 'lanes' ? { col: Math.floor(slot / L.rows), row: slot % L.rows } : { col: slot % L.cols, row: Math.floor(slot / L.cols) };
   }
 
   function update(dt, t) {
     const L = layout;
     const ease = Math.min(1, dt * 5);
     for (const a of actors.values()) {
-      a.lane += (a.slot - a.lane) * ease;
-      if (Math.abs(a.slot - a.lane) < 0.01) a.lane = a.slot;
-      if (L.mode === 'tiles') {
-        const col = a.slot % L.cols, row = Math.floor(a.slot / L.cols);
-        if (a.col == null || a.layoutRef !== L) { a.col = col; a.row = row; a.cam = camTarget(a); a.layoutRef = L; }
-        a.col += (col - a.col) * ease;
-        a.row += (row - a.row) * ease;
-        a.cam += (camTarget(a) - a.cam) * Math.min(1, dt * 3);
+      const cell = cellFor(a.slot);
+      if (a.col == null || a.layoutRef !== L) {
+        a.col = cell.col; a.row = cell.row; a.layoutRef = L;
+        if (L.mode === 'tiles') a.cam = camTarget(a);
       }
+      a.col += (cell.col - a.col) * ease;
+      a.row += (cell.row - a.row) * ease;
+      if (Math.abs(cell.col - a.col) < 0.01) a.col = cell.col;
+      if (Math.abs(cell.row - a.row) < 0.01) a.row = cell.row;
+      if (L.mode === 'tiles') a.cam += (camTarget(a) - a.cam) * Math.min(1, dt * 3);
       a.hop = Math.max(0, a.hop - dt);
       if (a.delay > 0) { a.delay -= dt; continue; }
       const dist = trackDist(a.pos, a.target);
@@ -668,18 +692,18 @@
     }
   }
 
-  // The rectangle a student's scene occupies, and where their feet are.
+  // The rectangle a student's scene occupies (lane or card body).
   function sceneBox(a) {
     const L = layout;
-    if (L.mode === 'lanes') return { x: 0, y: L.headerH + a.lane * L.laneH, w: L.width, h: L.laneH };
-    const o = tileOrigin(a.col, a.row);
-    return { x: o.x, y: o.y + L.headH, w: L.tileW, h: L.laneH, tileY: o.y, lo: a.cam - MARGIN };
+    if (L.mode === 'lanes') return { x: a.col * (L.colW + GAP), y: L.headerH + a.row * L.laneH, w: L.colW, h: L.laneH };
+    const x = GAP + a.col * (L.tileW + GAP), tileY = GAP + a.row * (L.tileH + GAP);
+    return { x, y: tileY + L.headH, w: L.tileW, h: L.laneH, tileY, lo: a.cam - MARGIN };
   }
 
   function actorFeet(a) {
     const L = layout;
     const box = sceneBox(a);
-    const x = L.mode === 'lanes' ? xOf(a.pos) : box.x + (a.pos - box.lo) * L.segW;
+    const x = L.mode === 'lanes' ? box.x + xOf(a.pos) : box.x + (a.pos - box.lo) * L.segW;
     return { x, y: box.y + L.laneH - GROUND * L.u };
   }
 
@@ -709,18 +733,18 @@
     return 0;
   }
 
-  // Returns the label's left edge so decorations can sit beside it.
+  // Returns the label's box so decorations can sit beside it.
   function drawLabel(c, text, cx, bottom, u, color) {
-    const fs = u >= 2.5 ? 10 : 8;
+    const fs = fontPx(u);
     c.font = `${fs}px ${FONT}`;
     c.textBaseline = 'alphabetic';
     const w = Math.ceil(c.measureText(text).width);
-    const padX = 3, h = fs + 6;
+    const padX = Math.round(fs * 0.35), h = Math.round(fs * 1.6);
     const left = Math.round(cx - w / 2 - padX);
-    c.fillStyle = 'rgba(10,10,20,0.78)';
+    c.fillStyle = 'rgba(10,10,20,0.85)';
     c.fillRect(left, Math.round(bottom - h), w + padX * 2, h);
     c.fillStyle = color;
-    c.fillText(text, left + padX, Math.round(bottom - 3));
+    c.fillText(text, left + padX, Math.round(bottom - (h - fs) / 2));
     return { left, top: Math.round(bottom - h), h };
   }
 
@@ -729,13 +753,14 @@
     return { text: st.finished ? '★' : `L${st.level + 1}`, color: st.finished ? '#fcd03c' : '#8c8cb0' };
   }
 
-  function drawGutter(st, y) {
+  function drawGutter(a) {
     const L = layout;
-    ctx.font = `${L.u >= 2.5 ? 12 : 8}px ${FONT}`;
+    const box = sceneBox(a);
+    ctx.font = `${Math.min(fontPx(L.u), Math.floor(L.gutter / 4))}px ${FONT}`;
     ctx.textBaseline = 'middle';
-    const { text, color } = rankText(st);
+    const { text, color } = rankText(a.student);
     ctx.fillStyle = color;
-    ctx.fillText(text, Math.round((L.gutter - ctx.measureText(text).width) / 2), Math.round(y + L.laneH / 2));
+    ctx.fillText(text, Math.round(box.x + (L.gutter - ctx.measureText(text).width) / 2), Math.round(box.y + L.laneH / 2));
   }
 
   function dashedLine(x, y0, y1) {
@@ -748,16 +773,24 @@
     const L = layout;
     const pace = state.pace;
     if (!pace || pace.position <= 0) return;
-    const x = xOf(Math.min(pace.position, L.nL));
-    dashedLine(x, L.headerH, L.height);
     const bob = Math.sin(t * 2) > 0 ? 0 : L.u;
-    ctx.globalAlpha = 0.9;
-    ctx.drawImage(renderIcon('pace', L.u * L.dpr), x - 4 * L.u, 2 * L.u + bob - L.u, 8 * L.u, 8 * L.u);
-    ctx.globalAlpha = 1;
+    for (let c = 0; c < L.cols; c++) {
+      const x = c * (L.colW + GAP) + xOf(Math.min(pace.position, L.nL));
+      dashedLine(x, L.headerH, L.headerH + Math.min(L.rows, L.n - c * L.rows) * L.laneH);
+      ctx.globalAlpha = 0.9;
+      ctx.drawImage(renderIcon('pace', L.u * L.dpr), x - 4 * L.u, 2 * L.u + bob - L.u, 8 * L.u, 8 * L.u);
+      ctx.globalAlpha = 1;
+    }
   }
 
   function hasBadge(st, key) {
     return (st.badges || []).some((b) => b.key === key);
+  }
+
+  const trailColors = new Map();
+  function trailColor(index) {
+    if (!trailColors.has(index)) trailColors.set(index, window.Sprites.PALETTES[decodeCharacter(index).palette].a);
+    return trailColors.get(index);
   }
 
   // A card: header strip with place and level names, then the stitched scene.
@@ -777,8 +810,7 @@
       ctx.drawImage(img, sx, box.y, L.segW + 0.5, L.laneH);
     }
 
-    // Level names along the top of the card.
-    ctx.font = `8px ${FONT}`;
+    ctx.font = `${Math.min(fontPx(L.u), Math.floor(L.headH * 0.7))}px ${FONT}`;
     ctx.textBaseline = 'middle';
     const { text: rk, color: rkColor } = rankText(a.student);
     const rankW = Math.ceil(ctx.measureText(rk).width) + 3 * L.u;
@@ -799,20 +831,20 @@
     if (pace && pace.position > 0 && pace.position > lo && pace.position < hi) {
       dashedLine(box.x + (Math.min(pace.position, L.nL) - lo) * L.segW, box.y, box.y + L.laneH);
     }
-    drawActor(a, t);
+    drawActor(a, t, box.x);
     ctx.restore();
-
-    if (hoverId === a.id || selectedId === a.id) {
-      ctx.strokeStyle = '#3cdcfc';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(box.x + 1, box.tileY + 1, box.w - 2, L.tileH - 2);
-    }
   }
 
-  function drawActor(a, t) {
+  // `trailStart` is where this student's progress trail begins.
+  function drawActor(a, t, trailStart) {
     const L = layout;
     const st = a.student;
     const { x, y } = actorFeet(a);
+    if (x > trailStart) {
+      // A bright trail along the ground from the start line: reads like a bar chart.
+      rect(ctx, trailStart, y - L.u, x - trailStart, L.u * 3, 'rgba(0,0,0,0.55)');
+      rect(ctx, trailStart, y - L.u * 0.5, x - trailStart, L.u * 2, trailColor(st.character));
+    }
     const jy = yOffset(a);
     const frame = a.moving ? Math.floor(a.walk * 8) % 2 : 0;
     const bob = !a.moving && a.hop === 0 && Math.sin(t * 3 + a.phase) > 0.85 ? -L.u : 0;
@@ -835,22 +867,28 @@
     ctx.setTransform(L.dpr, 0, 0, L.dpr, 0, 0);
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, L.width, L.height);
-    const list = [...actors.values()].sort((a, b) => a.lane - b.lane);
+    const list = [...actors.values()].sort((a, b) => a.slot - b.slot);
 
     if (L.mode === 'lanes') {
-      ctx.drawImage(L.header, 0, 0, L.width, L.headerH);
-      for (let i = 0; i < state.students.length; i++) ctx.drawImage(L.lanes[i % 2], 0, L.headerH + i * L.laneH, L.width, L.laneH);
-      const hover = list.find((a) => a.id === hoverId);
-      if (hover) {
-        ctx.strokeStyle = '#3cdcfc';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(1, L.headerH + hover.slot * L.laneH + 1, L.width - 2, L.laneH - 2);
+      for (let c = 0; c < L.cols; c++) {
+        const cx = c * (L.colW + GAP);
+        ctx.drawImage(L.header, cx, 0, L.colW, L.headerH);
+        for (let r = 0; r < L.rows && c * L.rows + r < L.n; r++) ctx.drawImage(L.lanes[r % 2], cx, L.headerH + r * L.laneH, L.colW, L.laneH);
       }
       drawPace(t);
-      for (const a of list) drawGutter(a.student, L.headerH + a.lane * L.laneH);
-      for (const a of list) drawActor(a, t);
+      for (const a of list) drawGutter(a);
+      for (const a of list) drawActor(a, t, sceneBox(a).x + L.trackX);
     } else {
       for (const a of list) drawTile(a, t);
+    }
+
+    const hover = list.find((a) => a.id === hoverId);
+    if (hover) {
+      const box = sceneBox(hover);
+      ctx.strokeStyle = '#3cdcfc';
+      ctx.lineWidth = 2;
+      if (L.mode === 'lanes') ctx.strokeRect(box.x + 1, box.y + 1, box.w - 2, L.laneH - 2);
+      else ctx.strokeRect(box.x + 1, box.tileY + 1, box.w - 2, L.tileH - 2);
     }
 
     for (const p of particles) rect(ctx, p.x, p.y, L.u * 1.5, L.u * 1.5, p.color);
@@ -869,8 +907,10 @@
     if (!L || !state) return null;
     let slot;
     if (L.mode === 'lanes') {
-      if (py < L.headerH) return null;
-      slot = Math.floor((py - L.headerH) / L.laneH);
+      const col = Math.floor(px / (L.colW + GAP));
+      const row = Math.floor((py - L.headerH) / L.laneH);
+      if (py < L.headerH || row >= L.rows || col < 0 || col >= L.cols) return null;
+      slot = col * L.rows + row;
     } else {
       const col = Math.floor((px - GAP / 2) / (L.tileW + GAP));
       const row = Math.floor((py - GAP / 2) / (L.tileH + GAP));
@@ -923,20 +963,8 @@
     hl.textContent = bits.join('   ·   ');
     hl.hidden = !bits.length;
 
-    const badges = $('dBadges');
-    badges.replaceChildren(...(st.badges || []).map((b) => {
-      const el = document.createElement('li');
-      const img = document.createElement('img');
-      img.src = iconUrl(b.key);
-      img.alt = '';
-      const text = document.createElement('span');
-      text.innerHTML = '<strong></strong><br><small></small>';
-      text.querySelector('strong').textContent = `${b.label}${b.count > 1 ? ` ×${b.count}` : ''}`;
-      text.querySelector('small').textContent = b.desc;
-      el.append(img, text);
-      return el;
-    }));
-    $('dBadgesWrap').hidden = !(st.badges || []).length;
+    $('dBar').style.width = `${pct}%`;
+    renderBadgeCase(st);
 
     const items = $('dItems');
     if (st.finished) {
@@ -984,6 +1012,76 @@
     if (reduceMotion) detailRun.pos = target;
   }
 
+  // Badges this student earned in the last few minutes get a NEW tag.
+  function recentBadges(studentId) {
+    const cutoff = Date.now() - 15 * 60 * 1000;
+    return new Set((state.events || []).filter((e) => e.type === 'badge' && e.studentId === studentId && e.ts >= cutoff).map((e) => e.badge));
+  }
+
+  // Every badge on offer: earned ones lit up first, the rest locked with how to earn them.
+  function renderBadgeCase(st) {
+    const earned = new Map((st.badges || []).map((b) => [b.key, b]));
+    const fresh = recentBadges(st.id);
+    const all = state.badges || [];
+    const ordered = [...all.filter((b) => earned.has(b.key)), ...all.filter((b) => !earned.has(b.key))];
+    $('dCaseTitle').textContent = `Badges · ${earned.size} of ${all.length}`;
+    $('dCase').replaceChildren(...ordered.map((b) => {
+      const got = earned.get(b.key);
+      const li = document.createElement('li');
+      li.className = got ? `earned${fresh.has(b.key) ? ' fresh' : ''}` : 'locked';
+      const img = document.createElement('img');
+      img.src = iconUrl(got ? b.key : 'lock');
+      img.alt = '';
+      const name = document.createElement('strong');
+      name.textContent = `${b.label}${got && got.count > 1 ? ` ×${got.count}` : ''}`;
+      const how = document.createElement('small');
+      how.textContent = b.desc;
+      li.append(img, name, how);
+      if (fresh.has(b.key)) {
+        const tag = document.createElement('span');
+        tag.className = 'new-tag';
+        tag.textContent = 'NEW!';
+        li.append(tag);
+      }
+      li.setAttribute('aria-label', `${b.label}: ${got ? 'earned' : 'not yet earned'}. ${b.desc}`);
+      return li;
+    }));
+  }
+
+  function openBadgeBook() {
+    const students = state ? state.students : [];
+    $('badgeBookList').replaceChildren(...(state ? state.badges : []).map((b) => {
+      const holders = students.filter((s) => (s.badges || []).some((x) => x.key === b.key));
+      const row = document.createElement('div');
+      row.className = 'book-row';
+      const img = document.createElement('img');
+      img.src = iconUrl(b.key);
+      img.alt = '';
+      const text = document.createElement('div');
+      const name = document.createElement('strong');
+      name.textContent = b.label;
+      const how = document.createElement('p');
+      how.textContent = b.desc;
+      text.append(name, how);
+      const who = document.createElement('div');
+      who.className = 'book-who';
+      const count = document.createElement('span');
+      count.textContent = holders.length ? `${holders.length} earned` : 'Be the first!';
+      who.append(count);
+      for (const h of holders.slice(0, 12)) {
+        const face = document.createElement('img');
+        face.src = spriteUrl(h.character);
+        face.alt = h.name;
+        face.title = h.name;
+        who.append(face);
+      }
+      if (holders.length > 12) who.append(`+${holders.length - 12}`);
+      row.append(img, text, who);
+      return row;
+    }));
+    $('badgeBook').showModal();
+  }
+
   function drawDetail(dt, t) {
     const st = state && state.students.find((s) => s.id === selectedId);
     if (!st || !detailRun) return;
@@ -992,7 +1090,9 @@
     const dpr = window.devicePixelRatio || 1;
     const UNITS_W = 220, UNITS_H = 80;
     // Fit the width, but leave room for the checklist on short projector screens.
-    const u = Math.min(availW / UNITS_W, Math.max(2, (window.innerHeight * 0.34) / UNITS_H));
+    // In spotlight the badge case is the star, so the scene gets less room.
+    const share = $('detail').classList.contains('spotlight') ? 0.2 : 0.3;
+    const u = Math.min(availW / UNITS_W, Math.max(1.5, (window.innerHeight * share) / UNITS_H));
     const cssW = Math.round(UNITS_W * u);
     const cssH = Math.round(UNITS_H * u);
     if (scene.width !== Math.round(cssW * dpr) || scene.height !== Math.round(cssH * dpr)) {
@@ -1099,6 +1199,7 @@
   }
   $('detail').addEventListener('close', () => { selectedId = null; detailRun = null; spot.active = false; });
   $('galleryLink').addEventListener('click', (e) => { e.preventDefault(); openGallery(); });
+  $('badgeLink').addEventListener('click', (e) => { e.preventDefault(); if (state) openBadgeBook(); });
   $('boardToggle').addEventListener('click', () => {
     boardOverride = $('boardToggle').getAttribute('aria-pressed') !== 'true';
     setBoard(boardOverride);

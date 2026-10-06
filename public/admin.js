@@ -9,7 +9,7 @@
 
   let data = null;
   let settings = null;
-  const TABS = ['canvas', 'screens', 'students', 'levels', 'display', 'insights'];
+  const TABS = ['canvas', 'screens', 'students', 'levels', 'badges', 'display', 'insights'];
   let tab = null;
   let canvas = null;
   const conn = { url: '', token: '', courses: null, courseId: '', busy: false, msg: '', switching: false };
@@ -158,7 +158,7 @@
       $(`panel-${t}`).hidden = t !== tab;
     }
     const panel = $(`panel-${tab}`);
-    panel.replaceChildren(...{ canvas: renderCanvas, screens: renderScreens, students: renderStudents, levels: renderLevels, display: renderDisplay, insights: renderInsights }[tab]());
+    panel.replaceChildren(...{ canvas: renderCanvas, screens: renderScreens, students: renderStudents, levels: renderLevels, badges: renderBadges, display: renderDisplay, insights: renderInsights }[tab]());
     if (key) {
       const el = panel.querySelector(`[data-key="${CSS.escape(key)}"]`);
       if (el) {
@@ -515,11 +515,45 @@
         })));
   }
 
-  function trackSizeHint() {
-    const { levelsBefore: b, levelsAfter: a } = settings;
-    if (b == null && a == null) return 'Showing full-width lanes with all levels.';
-    const n = (b == null ? data.levels.length : Math.min(b, data.levels.length)) + 1 + (a == null ? data.levels.length : Math.min(a, data.levels.length));
-    return `Each card shows ${n} level${n === 1 ? '' : 's'}: the current one, ${b == null ? 'all' : b} before and ${a == null ? 'all' : a} after. Tip: 1 before and 1 after fits about 25 students on a typical projector.`;
+  function renderBadges() {
+    const disabled = new Set(settings.disabledBadges);
+    const setAll = (on) => { settings.disabledBadges = on ? [] : data.badges.map((b) => b.key); changed(); };
+    const groups = [...new Set(data.badges.map((b) => b.group))];
+    return [h('div', { className: 'panel' },
+      h('h2', {}, 'Badges'),
+      h('p', { className: 'hint' }, 'Choose which badges students can earn. Turned-off badges disappear from the display, the badge list and the spotlight. Badges only ever celebrate. None of them point out late or missing work.'),
+      h('div', { className: 'row', style: 'margin-bottom:12px' },
+        h('button', { className: 'btn', onclick: () => setAll(true) }, 'Turn all on'),
+        h('button', { className: 'btn', onclick: () => setAll(false) }, 'Turn all off'),
+        h('span', { className: 'hint', style: 'margin:0' }, `${data.badges.length - disabled.size} of ${data.badges.length} on`)),
+      groups.flatMap((g) => [
+        h('h3', {}, g),
+        h('table', { className: 'data' },
+          h('tbody', {}, data.badges.filter((b) => b.group === g).map((b) => {
+            const on = !disabled.has(b.key);
+            return h('tr', { className: on ? '' : 'off-row' },
+              h('td', { style: 'width:40px' }, h('input', { type: 'checkbox', checked: on, 'data-key': `badge-${b.key}`, 'aria-label': `Allow the ${b.label} badge`,
+                onchange: (e) => {
+                  settings.disabledBadges = e.target.checked ? settings.disabledBadges.filter((k) => k !== b.key) : [...settings.disabledBadges, b.key];
+                  changed();
+                } })),
+              h('td', { style: 'width:44px' }, h('img', { className: 'sprite', src: iconUrl(b.key), alt: '' })),
+              h('td', {}, h('strong', {}, b.label), h('br'), h('span', { className: 'hint' }, b.desc)),
+              h('td', { className: 'hide-sm', style: 'text-align:right;white-space:nowrap' }, on ? `${b.earned} earned` : h('span', { className: 'hint' }, 'off')));
+          }))),
+      ]))];
+  }
+
+  function radio(name, key, value, label, hint) {
+    return h('label', { className: 'choice' },
+      h('input', { type: 'radio', name, checked: settings[key] === value, 'data-key': `${name}-${value}`, onchange: () => { settings[key] = value; changed(); } }),
+      h('span', {}, label, hint ? h('small', { className: 'hint' }, ` ${hint}`) : null));
+  }
+
+  function selectField(key, label, options) {
+    return h('label', { className: 'field' }, h('span', {}, label),
+      h('select', { className: 'input', 'data-key': key, onchange: (e) => { settings[key] = Number(e.target.value); changed(); } },
+        options.map(([v, l]) => { const o = h('option', { value: v }, l); o.selected = settings[key] === v; return o; })));
   }
 
   function renderDisplay() {
@@ -546,12 +580,21 @@
         toggle('showBoard', 'Show the leaderboard panel'),
         toggle('showPace', 'Show the pace marker', '(a dashed line where the class should be, based on due dates)'),
         toggle('sound', 'Sound effects on by default', '(anyone at the display can still toggle them)')),
-      h('h3', {}, 'Track size'),
-      h('p', { className: 'hint' }, 'With “All”, every student gets one long lane showing every level. Pick a number to give each student a card showing only the levels around where they are now. Fewer levels means smaller cards, so more students fit on the screen. Cards resize to fill the screen.'),
-      h('div', { className: 'row' },
-        levelChoice('levelsBefore', 'Levels before the current one'),
-        levelChoice('levelsAfter', 'Levels after the current one')),
-      h('p', { className: 'hint', style: 'margin-top:8px' }, trackSizeHint()),
+      h('h3', {}, 'Track layout'),
+      h('div', { role: 'radiogroup', 'aria-label': 'Track layout' },
+        radio('layout', 'layout', 'lanes', 'Race track: everyone on the same track', '(best for seeing how far everyone is at a glance)'),
+        radio('layout', 'layout', 'cards', 'Cards: each student sees only the levels around them', '(bigger scenery, harder to compare)')),
+      settings.layout === 'lanes'
+        ? h('div', { className: 'row', style: 'margin-top:8px' },
+          selectField('laneColumns', 'Columns', [[0, 'Automatic (fit the screen)'], [1, '1 column'], [2, '2 columns'], [3, '3 columns'], [4, '4 columns']]),
+          h('p', { className: 'hint', style: 'margin:0;max-width:420px' }, 'With lots of students, the track splits into side-by-side columns so every lane stays tall enough to read. Automatic picks whatever makes names biggest on your screen.'))
+        : h('div', { className: 'row', style: 'margin-top:8px' },
+          levelChoice('levelsBefore', 'Levels before the current one'),
+          levelChoice('levelsAfter', 'Levels after the current one')),
+      h('h3', {}, 'Scenery'),
+      h('div', { role: 'radiogroup', 'aria-label': 'Scenery' },
+        radio('scenery', 'scenery', 'calm', 'Calm', '(softer backgrounds, so names and progress stand out)'),
+        radio('scenery', 'scenery', 'detailed', 'Detailed', '(full 8-bit scenery)')),
       h('label', { className: 'field', style: 'margin-top:12px' }, h('span', {}, 'Spotlight: show each student’s level close-up in turn'),
         h('select', { className: 'input', 'data-key': 'spotlight', onchange: (e) => { settings.spotlightSeconds = Number(e.target.value); changed(); } },
           SPOTLIGHT.map(([v, l]) => { const o = h('option', { value: v }, l); o.selected = settings.spotlightSeconds === v; return o; }))),

@@ -89,7 +89,9 @@ test('diffSnapshots reports cleared items, level ups, and finishes', () => {
   let n = 0;
   assert.deepStrictEqual(diffSnapshots(null, s1, () => ++n), []);
   const events = diffSnapshots(s1, s2, () => ++n, 1000);
-  assert.deepStrictEqual(events.map((e) => e.type), ['item', 'level']);
+  const types = (list) => list.filter((e) => e.type !== 'badge').map((e) => e.type);
+  assert.deepStrictEqual(types(events), ['item', 'level']);
+  assert.ok(events.some((e) => e.type === 'badge' && e.badge === 'firststeps' && /earned the First Steps badge/.test(e.text)));
   assert.match(events[0].text, /Ava S\. cleared “Hello”/);
   assert.match(events[1].text, /Level 2: Loops/);
 
@@ -97,7 +99,7 @@ test('diffSnapshots reports cleared items, level ups, and finishes', () => {
     { id: 1, state: 'completed', items: [req(11, 'Hello', true)] },
     { id: 2, state: 'completed', items: [req(21, 'a', true), req(22, 'b', true)] },
   ]);
-  assert.deepStrictEqual(diffSnapshots(s2, s3, () => ++n).map((e) => e.type), ['item', 'item', 'finish']);
+  assert.deepStrictEqual(types(diffSnapshots(s2, s3, () => ++n)), ['item', 'item', 'finish']);
 });
 
 test('nicknames and level exclusions come from settings', () => {
@@ -125,26 +127,42 @@ test('computePace follows due dates in course order', () => {
   assert.strictEqual(computePace(levels, 0).position, 0);
 });
 
-test('badges celebrate streaks, early work, punctuality, and trailblazing', () => {
+test('badges celebrate progress, habits and quality', () => {
   const day = 86400000, now = Date.parse('2026-10-05T12:00:00Z');
   const sub = (daysAgo, dueInDays, extra = {}) => ({
-    user_id: 7, submitted_at: new Date(now - daysAgo * day).toISOString(), workflow_state: 'submitted',
+    user_id: 7, assignment_id: 1, submitted_at: new Date(now - daysAgo * day).toISOString(), workflow_state: 'submitted',
     cached_due_date: new Date(now - daysAgo * day + dueInDays * day).toISOString(), late: false, ...extra,
   });
   const subs = [sub(0, 2), sub(1, 3), sub(2, 2), sub(3, 0.5), sub(20, 0.1)];
   const stats = submissionStats(subs, now);
-  assert.deepStrictEqual([stats.activeDays7, stats.early, stats.late, stats.submitted], [4, 3, 0, 5]);
-  assert.deepStrictEqual(badgesFor({ finished: false, trailblazes: 0, stats }).map((b) => b.key), ['onfire', 'early', 'clockwork']);
+  assert.deepStrictEqual([stats.activeDays7, stats.early, stats.late, stats.submitted, stats.comeback], [4, 3, 0, 5, true]);
+  const keys = (args, off) => badgesFor({ stats, ...args }, off).map((b) => b.key);
+  assert.deepStrictEqual(keys({}), ['onfire', 'comeback', 'early', 'clockwork']);
+  assert.deepStrictEqual(keys({}, ['comeback', 'early']), ['onfire', 'clockwork']);
   const lateStats = submissionStats([...subs, sub(30, -1, { late: true })], now);
-  assert.ok(!badgesFor({ finished: false, trailblazes: 0, stats: lateStats }).some((b) => b.key === 'clockwork'));
+  assert.ok(!badgesFor({ stats: lateStats }).some((b) => b.key === 'clockwork'));
 
+  // Progress badges.
+  assert.deepStrictEqual(badgesFor({ done: 1, total: 10 }).map((b) => b.key), ['firststeps']);
+  assert.deepStrictEqual(badgesFor({ done: 6, total: 10, levelsCleared: 3, aheadOfPace: 3 }).map((b) => b.key), ['firststeps', 'explorer', 'halfway', 'pacesetter']);
+
+  // Busy day, many days, perfect scores.
+  const busy = [0, 0, 0].map((h) => ({ ...sub(1, 1), submitted_at: new Date(now - day + h * 3600000).toISOString() }));
+  assert.strictEqual(submissionStats(busy, now).bestDay, 3);
+  const tenDays = Array.from({ length: 10 }, (_, i) => sub(i, 1, { assignment_id: i, score: 10 }));
+  const st = submissionStats(tenDays, now, new Map([['0', 10], ['1', 10], ['2', 10]]));
+  assert.deepStrictEqual([st.activeDays, st.perfect], [10, 3]);
+  assert.ok(['marathon', 'perfect'].every((k) => badgesFor({ stats: st }).some((b) => b.key === k)));
+
+  // Trailblazer: first to finish a level.
   const users = [{ id: 1, name: 'A B' }, { id: 2, name: 'C D' }];
   const mod = (when) => [{ id: 1, state: 'completed', completed_at: when, items: [req(11, 'Hello', true)] }];
   const snap = buildSnapshot({ courseId: 1, courseModules, users, submissions: [],
     modulesByUser: new Map([['1', mod('2026-10-02T00:00:00Z')], ['2', mod('2026-10-01T00:00:00Z')]]) });
   const byName = Object.fromEntries(snap.students.map((s) => [s.name, s.badges.map((b) => b.key)]));
-  assert.deepStrictEqual(byName['C D.'], ['trailblazer']);
-  assert.deepStrictEqual(byName['A B.'], []);
+  assert.ok(byName['C D.'].includes('trailblazer'));
+  assert.ok(!byName['A B.'].includes('trailblazer'));
+  assert.strictEqual(snap.badges.length, 13);
 });
 
 test('snapshots never expose Canvas user ids to displays', () => {

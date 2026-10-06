@@ -41,12 +41,19 @@ test('sanitize keeps valid settings and drops junk', () => {
   assert.strictEqual(s.defaultView, 'x');
 });
 
-test('levels before/after accept numbers or All', () => {
-  assert.deepStrictEqual([sanitize({}).levelsBefore, sanitize({}).levelsAfter], [null, null]);
-  const s = sanitize({ levelsBefore: 1, levelsAfter: '2' });
-  assert.deepStrictEqual([s.levelsBefore, s.levelsAfter], [1, 2]);
-  const bad = sanitize({ levelsBefore: -1, levelsAfter: 999 });
-  assert.deepStrictEqual([bad.levelsBefore, bad.levelsAfter], [null, 50]);
+test('track layout settings', () => {
+  const d = sanitize({});
+  assert.deepStrictEqual([d.layout, d.laneColumns, d.scenery, d.levelsBefore, d.levelsAfter], ['lanes', 0, 'calm', 1, 1]);
+  const s = sanitize({ layout: 'cards', laneColumns: 2, scenery: 'detailed', levelsBefore: null, levelsAfter: '2' });
+  assert.deepStrictEqual([s.layout, s.laneColumns, s.scenery, s.levelsBefore, s.levelsAfter], ['cards', 2, 'detailed', null, 2]);
+  const bad = sanitize({ layout: 'grid', laneColumns: 9, scenery: 'loud', levelsBefore: -1, levelsAfter: 999 });
+  assert.deepStrictEqual([bad.layout, bad.laneColumns, bad.scenery, bad.levelsBefore, bad.levelsAfter], ['lanes', 0, 'calm', 1, 50]);
+  // Settings saved before the layout option existed keep showing cards.
+  assert.strictEqual(sanitize({ levelsBefore: 1, levelsAfter: 1 }).layout, 'cards');
+});
+
+test('badges can be switched off', () => {
+  assert.deepStrictEqual(sanitize({ disabledBadges: ['onfire', 'nope', 'onfire'] }).disabledBadges, ['onfire']);
 });
 
 test('screen membership: base, sections, include and exclude', () => {
@@ -113,6 +120,18 @@ test('displays never receive Canvas ids, real names, or teacher stats', async ()
     assert.ok(!json.includes(u.name), 'real name leaked');
   }
   assert.ok(!/missing|lastSubmittedAt|"late"/.test(json));
+});
+
+test('switched-off badges vanish from displays and the catalog', async () => {
+  const { tracker, settings } = await demoTracker(10);
+  assert.ok(tracker.getState().badges.some((b) => b.key === 'firststeps'));
+  settings.replace({ ...settings.get(), disabledBadges: ['firststeps'] });
+  tracker.rebuild();
+  const s = tracker.getState();
+  assert.ok(!s.badges.some((b) => b.key === 'firststeps'));
+  assert.ok(s.students.every((st) => !st.badges.some((b) => b.key === 'firststeps')));
+  const admin = tracker.getAdminData().badges.find((b) => b.key === 'firststeps');
+  assert.deepStrictEqual([admin.enabled, admin.earned], [false, 0]);
 });
 
 test('cooperative mode removes places', async () => {
