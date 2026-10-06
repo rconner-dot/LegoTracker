@@ -36,7 +36,10 @@ and jumps over the next obstacle.
   character.
 - **Levels:** choose which modules count and pick each level's world.
 - **Display:** set the title, name style, race or cooperative mode, leaderboard, pace
-  marker, sound, and spotlight timing.
+  marker, sound, and spotlight timing. **Track size** sets how many levels to show
+  before and after each student's current level. With numbers, each student gets a card
+  of just those levels, and the cards resize to fill the screen (1 before and 1 after
+  fits about 25 students on a projector).
 - **Insights (private):** who's behind pace, last time each student turned something in,
   missing and late counts, and a CSV export.
 
@@ -134,6 +137,7 @@ Each screen's link is shown in teacher controls. You can add these to any displa
 | `?view=period-3` | Show a specific screen (the plain address shows the default screen) |
 | `&spotlight=20` | Spotlight a student every 20 seconds (`0` turns it off) |
 | `&board=0` | Hide the leaderboard panel |
+| `&before=1&after=2` | Override the track size for this display (`all` for full lanes) |
 | `&sound=1` | Start with sound on (browsers may still need one click first) |
 
 ## Options
