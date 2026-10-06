@@ -41,7 +41,23 @@ function startFakeCanvas({ students = 6 } = {}) {
         { id: 778, name: 'Study Hall', enrollments: [{ type: 'student' }] },
       ]);
     }
-    if (p === '/api/v1/courses/777') return json(200, COURSE);
+    if (p === '/api/v1/courses/777') {
+      const withSyllabus = url.searchParams.getAll('include[]').includes('syllabus_body');
+      return json(200, withSyllabus ? { ...COURSE, syllabus_body: '<p>Be kind &amp; build cool robots.</p>' } : COURSE);
+    }
+    if (p === '/api/v1/courses/777/assignments') {
+      return list(demo.items.map((it, i) => ({
+        id: it.content_id, name: it.title, points_possible: 10, due_at: it.content_details.due_at,
+        html_url: `http://${req.headers.host}/courses/777/assignments/${it.content_id}`,
+        submission_types: ['online_upload'], allowed_extensions: ['llsp3'], published: true,
+        description: i === 0
+          ? '<h2>Drive forward</h2><p>Make the robot drive <strong>10 rotations</strong> forward using motors A+B.</p><ul><li>Start with <em>when program starts</em></li><li>Stop at the end</li></ul><p>Starter: <a href="/courses/777/files/55/download">starter.llsp3</a></p>'
+          : `<p>Instructions for ${it.title}</p>`,
+        rubric: i === 0 ? [{ description: 'Uses motors A+B', long_description: 'Movement pair set to A+B', points: 5, ratings: [{ description: 'Yes', points: 5 }, { description: 'No', points: 0 }] }] : undefined,
+      })));
+    }
+    if (p === '/api/v1/courses/777/quizzes') return json(404, { errors: [{ message: 'not found' }] });
+    if (p === '/api/v1/courses/777/pages/welcome') return json(200, { title: 'Welcome', body: '<p>Welcome to robotics!</p>', html_url: 'x' });
     if (p === '/api/v1/courses/777/users') return list(demo.users);
     if (p === '/api/v1/courses/777/sections') return list([{ id: 1, name: 'Period 1' }, { id: 3, name: 'Period 3' }, { id: 5, name: 'Period 5' }]);
     if (p === '/api/v1/courses/777/students/submissions') return list(demo.users.flatMap((u) => demo.submissionsFor(u)));

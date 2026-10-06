@@ -91,6 +91,19 @@ another computer on the school network with **Show on other devices** (below) an
 the display from your computer's browser. Chromebooks can't run it directly, but they
 can open the display from another computer.
 
+### Exporting assignment instructions
+
+Two ways to save every assignment's instructions, rubric, due date and allowed file types
+from your connected course into one document:
+
+- **Teacher controls:** go to **Canvas → Download instructions** (Markdown or JSON).
+- **Double-click:** run **Export Canvas instructions** in the Class Quest folder. It
+  saves `instructions/instructions.md` and `instructions.json` and opens the folder. From
+  source, run `node scripts/export-instructions.js`.
+
+It reads course content only (assignments, rubrics, module pages and the syllabus),
+never student names, submissions or grades, so the files are safe to share.
+
 ### Showing it on another device
 
 On Windows, use **Show on other devices** instead of **Start Class Quest**. On Mac or
@@ -205,6 +218,7 @@ lib/settings.js    teacher settings, validation, and screen membership
 lib/tracker.js     refresh loop, event log, per-screen state
 lib/runtime.js     connect / switch / disconnect Canvas without restarting
 lib/admin.js       PIN sessions and CSV export
+lib/instructions.js  exports assignment instructions and rubrics from Canvas
 lib/sources.js     live Canvas source and the demo class
 public/sprites.js  pixel-art characters and badge icons (shared with the server)
 public/worlds.js   level themes, scenery, and obstacles
@@ -212,4 +226,5 @@ public/app.js      the class display
 public/admin.js    teacher controls
 launchers/         double-click start files for each OS
 scripts/package.js builds the zips (verifies Node.js downloads by checksum)
+scripts/export-instructions.js  saves all assignment instructions to instructions/
 ```

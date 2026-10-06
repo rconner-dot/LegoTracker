@@ -16,12 +16,12 @@ const { execFileSync } = require('child_process');
 const ROOT = path.join(__dirname, '..');
 const DIST = path.join(ROOT, 'dist');
 const CACHE = path.join(DIST, '.cache');
-const APP_FILES = ['server.js', 'package.json', 'README.md', 'config.example.json', 'lib', 'public'];
+const APP_FILES = ['server.js', 'package.json', 'README.md', 'config.example.json', 'lib', 'public', 'scripts/export-instructions.js'];
 
 const TARGETS = {
-  'win-x64': { archive: (v) => `node-${v}-win-x64.zip`, binary: 'node.exe', dest: 'node/node.exe', launchers: ['Start Class Quest.bat', 'Show on other devices.bat'] },
-  'mac-arm64': { archive: (v) => `node-${v}-darwin-arm64.tar.gz`, binary: 'bin/node', dest: 'node/bin/node', launchers: ['Start Class Quest.command'] },
-  'mac-x64': { archive: (v) => `node-${v}-darwin-x64.tar.gz`, binary: 'bin/node', dest: 'node/bin/node', launchers: ['Start Class Quest.command'] },
+  'win-x64': { archive: (v) => `node-${v}-win-x64.zip`, binary: 'node.exe', dest: 'node/node.exe', launchers: ['Start Class Quest.bat', 'Show on other devices.bat', 'Export Canvas instructions.bat'] },
+  'mac-arm64': { archive: (v) => `node-${v}-darwin-arm64.tar.gz`, binary: 'bin/node', dest: 'node/bin/node', launchers: ['Start Class Quest.command', 'Export Canvas instructions.command'] },
+  'mac-x64': { archive: (v) => `node-${v}-darwin-x64.tar.gz`, binary: 'bin/node', dest: 'node/bin/node', launchers: ['Start Class Quest.command', 'Export Canvas instructions.command'] },
   'linux-x64': { archive: (v) => `node-${v}-linux-x64.tar.xz`, binary: 'bin/node', dest: 'node/bin/node', launchers: ['start.sh'] },
 };
 
@@ -38,6 +38,9 @@ const START_HERE = {
 
 To show the display on a classroom TV or another computer, use
 "Show on other devices" instead and open the address it prints there.
+
+To save every assignment's instructions and rubrics from Canvas into one
+document, double-click "Export Canvas instructions" (after connecting).
 
 Nothing is installed. To remove Class Quest, delete this folder.
 Your settings and Canvas connection are saved in the "data" folder here.
@@ -112,7 +115,10 @@ async function main() {
     const app = path.join(stage, 'ClassQuest');
     fs.rmSync(stage, { recursive: true, force: true });
     fs.mkdirSync(app, { recursive: true });
-    for (const f of APP_FILES) copy(path.join(ROOT, f), path.join(app, f));
+    for (const f of APP_FILES) {
+      fs.mkdirSync(path.dirname(path.join(app, f)), { recursive: true });
+      copy(path.join(ROOT, f), path.join(app, f));
+    }
     for (const l of t.launchers) fs.copyFileSync(path.join(ROOT, 'launchers', l), path.join(app, l));
     const os = name.split('-')[0];
     fs.writeFileSync(path.join(app, 'START HERE.txt'), os === 'win' ? START_HERE.win.replace(/\n/g, '\r\n') : START_HERE[os]);

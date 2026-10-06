@@ -266,7 +266,12 @@
           ? h('p', { className: 'hint' }, 'This connection comes from environment variables on this computer, so it can only be changed there.')
           : h('div', { className: 'row' },
             !conn.switching ? h('button', { className: 'btn', onclick: () => { conn.switching = true; conn.courses = null; render(); } }, 'Switch course') : null,
-            h('button', { className: 'btn danger', onclick: disconnectCanvas }, 'Disconnect')))
+            h('button', { className: 'btn danger', onclick: disconnectCanvas }, 'Disconnect')),
+        h('h3', {}, 'Assignment instructions'),
+        h('p', { className: 'hint' }, 'Download every assignment’s instructions, rubric, due date and allowed file types as one document. It includes course content only, never student names or grades, so it’s safe to share (for example, to set up automatic grading).'),
+        h('div', { className: 'row' },
+          h('a', { className: 'btn', href: '/api/admin/canvas/instructions' }, 'Download instructions (.md)'),
+          h('a', { className: 'btn', href: '/api/admin/canvas/instructions?format=json' }, 'Download as JSON')))
       : h('p', {}, h('strong', {}, 'Not connected yet.'), ' The display is showing a pretend class so you can try everything out. Connect your Canvas course below. It takes about a minute.');
 
     const canReuse = canvas.connected && conn.url.replace(/\/+$/, '') === canvas.canvasUrl;

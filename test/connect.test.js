@@ -60,6 +60,10 @@ test('connect from teacher controls, survive a restart, then disconnect', async 
     // ...but it is never sent to a different site.
     await assert.rejects(runtime.listCourses({ canvasUrl: 'https://elsewhere.example' }), /Paste your Canvas access token/);
 
+    const instructions = await runtime.instructions();
+    assert.strictEqual(instructions.course.name, 'Intro to Programming');
+    assert.ok(instructions.modules.some((m) => m.items.some((i) => i.assignment && i.assignment.rubric.length)));
+
     const restarted = load();
     assert.strictEqual(restarted.demo, false);
     assert.strictEqual(restarted.courseId, '777');
@@ -67,6 +71,7 @@ test('connect from teacher controls, survive a restart, then disconnect', async 
 
     await runtime.disconnect();
     assert.strictEqual(runtime.tracker.mode, 'demo');
+    await assert.rejects(runtime.instructions(), /Connect a Canvas course first/);
     assert.strictEqual(load().demo, true);
     runtime.tracker.stop();
   } finally {

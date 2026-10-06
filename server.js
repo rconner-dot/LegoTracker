@@ -13,6 +13,7 @@ const { spawn } = require('child_process');
 const { loadConfig } = require('./lib/config');
 const { Runtime } = require('./lib/runtime');
 const { AdminAuth, sameOrigin, progressCsv } = require('./lib/admin');
+const { toMarkdown } = require('./lib/instructions');
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const MAX_BODY = 512 * 1024;
@@ -75,6 +76,14 @@ function createServer({ runtime, tracker: fixedTracker, auth }) {
   async function handleCanvas(req, res, url) {
     if (!runtime) return sendJson(res, 501, { error: 'Not available' });
     if (url.pathname === '/api/admin/canvas' && req.method === 'GET') return sendJson(res, 200, runtime.status());
+    if (url.pathname === '/api/admin/canvas/instructions' && req.method === 'GET') {
+      const data = await runtime.instructions();
+      const json = url.searchParams.get('format') === 'json';
+      const stamp = new Date().toISOString().slice(0, 10);
+      return send(res, 200, json ? JSON.stringify(data, null, 2) : toMarkdown(data), json ? 'application/json' : 'text/markdown; charset=utf-8', {
+        'Content-Disposition': `attachment; filename="instructions-${stamp}.${json ? 'json' : 'md'}"`,
+      });
+    }
     if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
     const body = await readJson(req);
     if (url.pathname === '/api/admin/canvas/courses') return sendJson(res, 200, await runtime.listCourses(body));
