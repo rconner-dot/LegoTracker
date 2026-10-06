@@ -9,7 +9,8 @@
 
   let data = null;
   let settings = null;
-  const TABS = ['canvas', 'screens', 'students', 'levels', 'badges', 'display', 'insights'];
+  const TABS = ['canvas', 'screens', 'students', 'levels', 'badges', 'display', 'insights', 'grader'];
+  const grader = { assignments: null, choice: '', results: [], busy: false };
   let tab = null;
   let canvas = null;
   const conn = { url: '', token: '', courses: null, courseId: '', busy: false, msg: '', switching: false };
@@ -158,7 +159,7 @@
       $(`panel-${t}`).hidden = t !== tab;
     }
     const panel = $(`panel-${tab}`);
-    panel.replaceChildren(...{ canvas: renderCanvas, screens: renderScreens, students: renderStudents, levels: renderLevels, badges: renderBadges, display: renderDisplay, insights: renderInsights }[tab]());
+    panel.replaceChildren(...{ canvas: renderCanvas, screens: renderScreens, students: renderStudents, levels: renderLevels, badges: renderBadges, display: renderDisplay, insights: renderInsights, grader: renderGrader }[tab]());
     if (key) {
       const el = panel.querySelector(`[data-key="${CSS.escape(key)}"]`);
       if (el) {
@@ -518,6 +519,73 @@
           o.selected = String(settings[key] ?? '') === v;
           return o;
         })));
+  }
+
+  // ---------- grader ----------
+
+  async function gradeFiles(fileList) {
+    const files = [...fileList].filter((f) => /\.llsp3?$/i.test(f.name));
+    if (!files.length) { status('Choose .llsp3 files', 'err'); return; }
+    grader.busy = true;
+    render();
+    for (const f of files) {
+      try {
+        const qs = new URLSearchParams({ name: f.name });
+        if (grader.choice) qs.set('assignment', grader.choice);
+        const res = await fetch(`/api/admin/grade?${qs}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: await f.arrayBuffer() });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+        grader.results.unshift(body);
+      } catch (err) {
+        grader.results.unshift({ filename: f.name, status: 'needs-work', checks: [{ label: 'Could not check', status: 'fail', detail: err.message }], program: [], feedback: '' });
+      }
+      render();
+    }
+    grader.busy = false;
+    render();
+  }
+
+  function renderGrader() {
+    if (!grader.assignments) {
+      api('/api/admin/grade/assignments').then((r) => { grader.assignments = r.assignments; render(); }).catch((err) => status(err.message, 'err'));
+    }
+    const ICON = { pass: '✔', fail: '✘', review: '?' };
+    const LABEL = { complete: 'Complete', 'needs-work': 'Needs work', review: 'Check by hand' };
+    const counts = grader.results.reduce((o, r) => ({ ...o, [r.status]: (o[r.status] || 0) + 1 }), {});
+    const input = h('input', { type: 'file', accept: '.llsp3,.llsp', multiple: true, hidden: true, onchange: (e) => { gradeFiles(e.target.files); e.target.value = ''; } });
+    const drop = h('div', {
+      className: 'dropzone', tabindex: 0, role: 'button', 'data-key': 'dropzone',
+      onclick: () => input.click(),
+      onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } },
+      ondragover: (e) => { e.preventDefault(); e.currentTarget.classList.add('over'); },
+      ondragleave: (e) => e.currentTarget.classList.remove('over'),
+      ondrop: (e) => { e.preventDefault(); e.currentTarget.classList.remove('over'); gradeFiles(e.dataTransfer.files); },
+    }, grader.busy ? 'Checking…' : 'Drop .llsp3 files here, or click to choose them', input);
+
+    return [h('div', { className: 'panel' },
+      h('h2', {}, 'Grader'),
+      h('p', { className: 'hint' }, 'Check students’ SPIKE programs against each assignment’s requirements from Canvas. Nothing is sent to Canvas yet; this is for checking and copying feedback. “Check by hand” marks things a file can’t prove, like whether the robot really reaches the finish.'),
+      h('div', { className: 'row', style: 'margin-bottom:12px' },
+        h('label', { className: 'field', style: 'margin:0' }, h('span', {}, 'Assignment'),
+          h('select', { className: 'input', 'data-key': 'grade-assignment', onchange: (e) => { grader.choice = e.target.value; } },
+            h('option', { value: '' }, 'Guess from the file name'),
+            (grader.assignments || []).map((a) => { const o = h('option', { value: a.id }, a.name); o.selected = grader.choice === a.id; return o; }))),
+        grader.results.length ? h('button', { className: 'btn', onclick: () => { grader.results = []; render(); } }, 'Clear results') : null),
+      drop,
+      grader.results.length ? h('p', {}, `${grader.results.length} checked · `, h('strong', { className: 'pos' }, `${counts.complete || 0} complete`), ' · ',
+        h('strong', { className: 'neg' }, `${counts['needs-work'] || 0} need work`), ' · ', h('strong', {}, `${counts.review || 0} to check by hand`)) : null,
+      grader.results.map((r) => h('div', { className: `grade-card ${r.status}` },
+        h('div', { className: 'grade-head' },
+          h('strong', {}, r.filename || r.projectName || 'file'),
+          h('span', { className: 'hint', style: 'margin:0' }, r.assignment ? r.assignment.name : 'Assignment not recognised: choose it above and check again'),
+          h('span', { className: `pill ${r.status}` }, `${LABEL[r.status] || r.status}${r.score != null ? ` · ${r.score}%` : ''}`)),
+        h('ul', { className: 'check-list' }, r.checks.map((c) => h('li', { className: c.status },
+          h('span', { className: 'mark' }, ICON[c.status] || '·'),
+          h('span', {}, c.label, c.optional ? h('small', { className: 'hint' }, ' (optional)') : null, c.detail ? h('small', { className: 'hint', style: 'display:block;margin:0' }, c.detail) : null)))),
+        r.program && r.program.length ? h('details', {}, h('summary', {}, 'Program'), h('pre', { className: 'program' }, r.program.join('\n'))) : null,
+        r.feedback ? h('details', {}, h('summary', {}, 'Feedback for the student'),
+          h('pre', { className: 'program' }, r.feedback),
+          h('button', { className: 'btn', onclick: (e) => navigator.clipboard.writeText(r.feedback).then(() => { e.target.textContent = 'Copied!'; }) }, 'Copy feedback')) : null)))];
   }
 
   function renderBadges() {

@@ -16,10 +16,10 @@ const { execFileSync } = require('child_process');
 const ROOT = path.join(__dirname, '..');
 const DIST = path.join(ROOT, 'dist');
 const CACHE = path.join(DIST, '.cache');
-const APP_FILES = ['server.js', 'package.json', 'README.md', 'config.example.json', 'lib', 'public', 'scripts/export-instructions.js'];
+const APP_FILES = ['server.js', 'package.json', 'README.md', 'config.example.json', 'lib', 'public', 'scripts/export-instructions.js', 'scripts/check-llsp3.js'];
 
 const TARGETS = {
-  'win-x64': { archive: (v) => `node-${v}-win-x64.zip`, binary: 'node.exe', dest: 'node/node.exe', launchers: ['Start Class Quest.bat', 'Show on other devices.bat', 'Export Canvas instructions.bat'] },
+  'win-x64': { archive: (v) => `node-${v}-win-x64.zip`, binary: 'node.exe', dest: 'node/node.exe', launchers: ['Start Class Quest.bat', 'Show on other devices.bat', 'Export Canvas instructions.bat', 'Check LEGO programs.bat'] },
   'mac-arm64': { archive: (v) => `node-${v}-darwin-arm64.tar.gz`, binary: 'bin/node', dest: 'node/bin/node', launchers: ['Start Class Quest.command', 'Export Canvas instructions.command'] },
   'mac-x64': { archive: (v) => `node-${v}-darwin-x64.tar.gz`, binary: 'bin/node', dest: 'node/bin/node', launchers: ['Start Class Quest.command', 'Export Canvas instructions.command'] },
   'linux-x64': { archive: (v) => `node-${v}-linux-x64.tar.xz`, binary: 'bin/node', dest: 'node/bin/node', launchers: ['start.sh'] },
@@ -41,6 +41,9 @@ To show the display on a classroom TV or another computer, use
 
 To save every assignment's instructions and rubrics from Canvas into one
 document, double-click "Export Canvas instructions" (after connecting).
+
+To check students' LEGO programs, drag .llsp3 files (or a folder of them)
+onto "Check LEGO programs", or use the Grader tab in Teacher controls.
 
 Nothing is installed. To remove Class Quest, delete this folder.
 Your settings and Canvas connection are saved in the "data" folder here.

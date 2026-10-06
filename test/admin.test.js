@@ -211,3 +211,17 @@ test('static files cannot escape the public folder', () => withServer(async (bas
   assert.ok(res.status === 403 || res.status === 404);
   assert.strictEqual((await fetch(`${base}/admin`)).status, 200);
 }));
+
+test('grader endpoint checks an uploaded .llsp3', () => withServer(async (base) => {
+  const file = require('fs').readFileSync(require('path').join(__dirname, 'fixtures', 'example.llsp3'));
+  const list = await (await fetch(`${base}/api/admin/grade/assignments`)).json();
+  assert.ok(list.assignments.some((a) => a.id === '910143'));
+  const res = await fetch(`${base}/api/admin/grade?assignment=910143&name=example.llsp3`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
+  const r = await res.json();
+  assert.deepStrictEqual([res.status, r.assignment.id, r.status], [200, '910143', 'needs-work']);
+  // Same protections as the other teacher endpoints.
+  const form = await fetch(`${base}/api/admin/grade`, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: 'x' });
+  assert.strictEqual(form.status, 415);
+  const cross = await fetch(`${base}/api/admin/grade`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', Origin: 'https://evil.example' }, body: file });
+  assert.strictEqual(cross.status, 403);
+}));

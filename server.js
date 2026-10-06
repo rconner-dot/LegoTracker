@@ -14,6 +14,7 @@ const { loadConfig } = require('./lib/config');
 const { Runtime } = require('./lib/runtime');
 const { AdminAuth, sameOrigin, progressCsv } = require('./lib/admin');
 const { toMarkdown } = require('./lib/instructions');
+const { gradeFile, listAssignments } = require('./lib/grading');
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const MAX_BODY = 512 * 1024;
@@ -55,6 +56,21 @@ function readJson(req) {
         reject(Object.assign(new Error('Bad JSON'), { status: 400 }));
       }
     });
+    req.on('error', reject);
+  });
+}
+
+function readRaw(req, limit) {
+  return new Promise((resolve, reject) => {
+    if (!/^application\/octet-stream\b/.test(req.headers['content-type'] || '')) return reject(Object.assign(new Error('Expected a file'), { status: 415 }));
+    let size = 0;
+    const chunks = [];
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > limit) { reject(Object.assign(new Error('That file is too large'), { status: 413 })); req.destroy(); return; }
+      chunks.push(c);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
     req.on('error', reject);
   });
 }
@@ -122,6 +138,12 @@ function createServer({ runtime, tracker: fixedTracker, auth }) {
     if (url.pathname === '/api/admin/refresh' && req.method === 'POST') {
       await tracker.refresh();
       return sendJson(res, 200, { ok: !tracker.error, error: tracker.error });
+    }
+    if (url.pathname === '/api/admin/grade/assignments' && req.method === 'GET') return sendJson(res, 200, { assignments: listAssignments() });
+    if (url.pathname === '/api/admin/grade' && req.method === 'POST') {
+      const buf = await readRaw(req, 10 * 1024 * 1024);
+      const result = gradeFile(buf, { assignment: url.searchParams.get('assignment') || null, filename: url.searchParams.get('name') || '' });
+      return sendJson(res, 200, result);
     }
     if (url.pathname === '/api/admin/export.csv' && req.method === 'GET') {
       const stamp = new Date().toISOString().slice(0, 10);

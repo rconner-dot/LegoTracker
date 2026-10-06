@@ -290,6 +290,24 @@ table.data img.sprite { width: 32px; height: 32px; image-rendering: pixelated; }
 .char-grid img { width: 48px; height: 48px; image-rendering: pixelated; }
 .pos { color: var(--green); }
 tr.off-row td { opacity: 0.5; }
+.dropzone { border: 3px dashed var(--line); padding: 28px; text-align: center; color: var(--muted); cursor: pointer; margin-bottom: 14px; }
+.dropzone:hover, .dropzone:focus-visible, .dropzone.over { border-color: var(--cyan); color: var(--text); outline: none; }
+.grade-card { background: var(--panel-2); border-left: 6px solid var(--line); padding: 12px 14px; margin-top: 10px; }
+.grade-card.complete { border-left-color: var(--green); }
+.grade-card.needs-work { border-left-color: var(--red); }
+.grade-card.review { border-left-color: var(--gold); }
+.grade-head { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; margin-bottom: 8px; }
+.pill { margin-left: auto; font: 9px var(--pixel); padding: 5px 8px; border: 2px solid currentColor; }
+.pill.complete { color: var(--green); }
+.pill.needs-work { color: var(--red); }
+.pill.review { color: var(--gold); }
+.check-list { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 6px; }
+.check-list li { display: flex; gap: 8px; }
+.check-list .mark { width: 20px; flex: none; font-weight: 700; font-size: 17px; line-height: 1.2; }
+.check-list .pass .mark { color: var(--green); }
+.check-list .fail .mark { color: var(--red); }
+.check-list .review .mark { color: var(--gold); }
+pre.program { background: #0b0b16; padding: 10px; overflow-x: auto; font-size: 13px; line-height: 1.4; white-space: pre-wrap; margin: 6px 0; }
 .neg { color: var(--red); }
 .status { position: fixed; right: 16px; bottom: 16px; font: 9px var(--pixel); background: var(--panel-2); border: 2px solid var(--line); padding: 8px 10px; }
 .status.ok { color: var(--green); }

@@ -104,6 +104,43 @@ from your connected course into one document:
 It reads course content only (assignments, rubrics, module pages and the syllabus),
 never student names, submissions or grades, so the files are safe to share.
 
+### Checking LEGO programs (auto-grading)
+
+Class Quest can check students' SPIKE Prime programs (`.llsp3` files) against each
+assignment's requirements. The checks are written from the course's Canvas
+instructions, and there are rules for 20 assignments, from Programming a Sequence to the
+Final Challenge.
+
+- **Teacher controls → Grader:** drop in one or many files. The assignment is guessed
+  from the file name ("Sequential Movements Neil Armstrong"), or you can pick it.
+- **Windows:** drag files or a folder onto **Check LEGO programs**. From source, run
+  `node scripts/check-llsp3.js [--assignment "Moving Forward"] files…`, or `--list` to
+  see the assignments.
+
+Each file gets one of three results:
+- **Complete:** every requirement is met.
+- **Needs work:** at least one requirement failed. You get a student-friendly hint for
+  each failure, for example "Swap the order to D+B: the left motor (D) comes first".
+- **Check by hand:** something a file can't prove. Examples are whether the robot really
+  reaches the finish area, or whether a picture matches the one in Canvas. These never
+  count against the student.
+
+You also see the program written out in plain English (light patterns are drawn as
+5×5 grids) and feedback you can copy for the student.
+
+What it checks, for example:
+- block order
+- motor ports (D+B)
+- distances and units (cm vs rotations)
+- turn steering and amounts
+- repeat counts and what's inside loops
+- sensor ports and values (F closer than 20 cm, A sees green)
+- waits and sounds after each move
+- different speeds
+- display time
+
+Grades aren't sent to Canvas yet. This is for checking and feedback.
+
 ### Showing it on another device
 
 On Windows, use **Show on other devices** instead of **Start Class Quest**. On Mac or
@@ -219,6 +256,8 @@ lib/tracker.js     refresh loop, event log, per-screen state
 lib/runtime.js     connect / switch / disconnect Canvas without restarting
 lib/admin.js       PIN sessions and CSV export
 lib/instructions.js  exports assignment instructions and rubrics from Canvas
+lib/llsp3.js       reads SPIKE App 3 project files (zip-in-zip, no dependencies)
+lib/grading/       program interpreter, per-assignment rules, and grading
 lib/sources.js     live Canvas source and the demo class
 public/sprites.js  pixel-art characters and badge icons (shared with the server)
 public/worlds.js   level themes, scenery, and obstacles
@@ -227,4 +266,5 @@ public/admin.js    teacher controls
 launchers/         double-click start files for each OS
 scripts/package.js builds the zips (verifies Node.js downloads by checksum)
 scripts/export-instructions.js  saves all assignment instructions to instructions/
+scripts/check-llsp3.js          checks .llsp3 files from the command line
 ```
