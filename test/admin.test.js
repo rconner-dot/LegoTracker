@@ -41,6 +41,14 @@ test('sanitize keeps valid settings and drops junk', () => {
   assert.strictEqual(s.defaultView, 'x');
 });
 
+test('levels before/after accept numbers or All', () => {
+  assert.deepStrictEqual([sanitize({}).levelsBefore, sanitize({}).levelsAfter], [null, null]);
+  const s = sanitize({ levelsBefore: 1, levelsAfter: '2' });
+  assert.deepStrictEqual([s.levelsBefore, s.levelsAfter], [1, 2]);
+  const bad = sanitize({ levelsBefore: -1, levelsAfter: 999 });
+  assert.deepStrictEqual([bad.levelsBefore, bad.levelsAfter], [null, 50]);
+});
+
 test('screen membership: base, sections, include and exclude', () => {
   const st = (userId, sections) => ({ userId, sections });
   const view = { base: 'sections', sections: ['3'], include: ['9'], exclude: ['2'] };

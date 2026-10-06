@@ -313,6 +313,14 @@ details summary { cursor: pointer; color: var(--cyan); margin-bottom: 6px; }
 
 @keyframes slide-in { from { transform: translateX(-12px); opacity: 0; } to { transform: none; opacity: 1; } }
 
+/* On wide screens the display is exactly one screen tall: the track sizes
+   itself to fit, and a long leaderboard scrolls inside its own panel. */
+@media (min-width: 1001px) {
+  body:has(#trackWrap) { height: 100vh; overflow: hidden; }
+  .layout { min-height: 0; }
+  .track-wrap, .board { min-height: 0; overflow-y: auto; }
+}
+
 @media (max-width: 1000px) {
   .layout { grid-template-columns: minmax(0, 1fr); }
   .board { border-left: 0; border-top: 4px solid var(--line); }

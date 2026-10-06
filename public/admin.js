@@ -504,6 +504,24 @@
         : h('p', { className: 'hint' }, 'No modules loaded yet.'))];
   }
 
+  function levelChoice(key, label) {
+    const max = Math.max(10, data.levels.length);
+    return h('label', { className: 'field' }, h('span', {}, label),
+      h('select', { className: 'input', 'data-key': key, onchange: (e) => { settings[key] = e.target.value === '' ? null : Number(e.target.value); changed(); } },
+        [['', 'All'], ...Array.from({ length: max + 1 }, (_, i) => [String(i), String(i)])].map(([v, l]) => {
+          const o = h('option', { value: v }, l);
+          o.selected = String(settings[key] ?? '') === v;
+          return o;
+        })));
+  }
+
+  function trackSizeHint() {
+    const { levelsBefore: b, levelsAfter: a } = settings;
+    if (b == null && a == null) return 'Showing full-width lanes with all levels.';
+    const n = (b == null ? data.levels.length : Math.min(b, data.levels.length)) + 1 + (a == null ? data.levels.length : Math.min(a, data.levels.length));
+    return `Each card shows ${n} level${n === 1 ? '' : 's'}: the current one, ${b == null ? 'all' : b} before and ${a == null ? 'all' : a} after. Tip: 1 before and 1 after fits about 25 students on a typical projector.`;
+  }
+
   function renderDisplay() {
     const toggle = (key, label, hint) => h('label', { className: 'choice' },
       h('input', { type: 'checkbox', checked: settings[key], 'data-key': key, onchange: (e) => { settings[key] = e.target.checked; changed(); } }),
@@ -528,6 +546,12 @@
         toggle('showBoard', 'Show the leaderboard panel'),
         toggle('showPace', 'Show the pace marker', '(a dashed line where the class should be, based on due dates)'),
         toggle('sound', 'Sound effects on by default', '(anyone at the display can still toggle them)')),
+      h('h3', {}, 'Track size'),
+      h('p', { className: 'hint' }, 'With “All”, every student gets one long lane showing every level. Pick a number to give each student a card showing only the levels around where they are now. Fewer levels means smaller cards, so more students fit on the screen. Cards resize to fill the screen.'),
+      h('div', { className: 'row' },
+        levelChoice('levelsBefore', 'Levels before the current one'),
+        levelChoice('levelsAfter', 'Levels after the current one')),
+      h('p', { className: 'hint', style: 'margin-top:8px' }, trackSizeHint()),
       h('label', { className: 'field', style: 'margin-top:12px' }, h('span', {}, 'Spotlight: show each student’s level close-up in turn'),
         h('select', { className: 'input', 'data-key': 'spotlight', onchange: (e) => { settings.spotlightSeconds = Number(e.target.value); changed(); } },
           SPOTLIGHT.map(([v, l]) => { const o = h('option', { value: v }, l); o.selected = settings.spotlightSeconds === v; return o; }))),
